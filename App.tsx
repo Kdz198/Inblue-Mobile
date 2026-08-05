@@ -236,7 +236,7 @@ function App() {
       setIsVerifying(false);
       let rawErr = err.message || 'Xác thực không thành công. Vui lòng thử lại!';
       if (rawErr.toLowerCase().includes('booking not found')) {
-        rawErr = 'Không tìm thấy lịch hẹn phỏng vấn cho mã PIN này. Vui lòng kiểm tra lại!';
+        rawErr = 'Không tìm thấy lịch hẹn phỏng vấn cho mã PIN này!';
       }
       setAuthError(rawErr);
       setPin('');

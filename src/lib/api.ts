@@ -1,6 +1,7 @@
 import createClient from 'openapi-fetch';
 
 export const BASE_URL = 'https://api.kdz.asia';
+export const SYSTEM_TIMEOUT_MS = 3 * 60 * 1000; // 3 Minutes overall timeout for AI processing
 
 export interface KioskEnterDtoResponse {
   aiSessionKey: string;
@@ -40,7 +41,7 @@ export interface ChatMessage {
 // Fetch helper for Kiosk API endpoints
 export async function enterKioskApi(sessionKey: string): Promise<KioskEnterDtoResponse> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), SYSTEM_TIMEOUT_MS);
 
   try {
     const response = await fetch(`${BASE_URL}/api/kiosk/enter/${encodeURIComponent(sessionKey)}`, {
@@ -71,42 +72,68 @@ export async function enterKioskApi(sessionKey: string): Promise<KioskEnterDtoRe
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error('Kết nối máy chủ quá thời gian (Timeout 8s). Vui lòng thử lại!');
+      throw new Error('Kết nối máy chủ quá thời gian (Timeout 3 phút). Vui lòng thử lại!');
     }
     throw err;
   }
 }
 
 export async function startInterviewApi(sessionKey: string): Promise<InterviewStartResponse> {
-  const response = await fetch(`${BASE_URL}/api/v1/interview/start/${encodeURIComponent(sessionKey)}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYSTEM_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error(`Khởi tạo phiên phỏng vấn thất bại (${response.status})`);
+  try {
+    const response = await fetch(`${BASE_URL}/api/v1/interview/start/${encodeURIComponent(sessionKey)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Khởi tạo phiên phỏng vấn thất bại (${response.status})`);
+    }
+
+    return await response.json();
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('AI phản hồi quá thời gian (Timeout 3 phút). Vui lòng thử lại!');
+    }
+    throw err;
   }
-
-  return response.json();
 }
 
 export async function submitAnswerApi(sessionKey: string, answerText: string): Promise<InterviewSubmitResponse> {
-  const response = await fetch(`${BASE_URL}/api/v1/interview/submit`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      sessionKey,
-      answerText,
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYSTEM_TIMEOUT_MS);
 
-  if (!response.ok) {
-    throw new Error(`Gửi câu trả lời thất bại (${response.status})`);
+  try {
+    const response = await fetch(`${BASE_URL}/api/v1/interview/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionKey,
+        answerText,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Gửi câu trả lời thất bại (${response.status})`);
+    }
+
+    return await response.json();
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('AI xử lý câu trả lời quá thời gian (Timeout 3 phút). Vui lòng thử lại!');
+    }
+    throw err;
   }
-
-  return response.json();
 }
