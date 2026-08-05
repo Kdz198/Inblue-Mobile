@@ -225,22 +225,7 @@ function App() {
     }
   }, [isReady, isVerifying, isVerified]);
 
-  // Physical keyboard listener on Web PC preview
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
-    const handleKeyDown = (e: any) => {
-      if (isVerified || isVerifying) return;
-      if (e.key >= '0' && e.key <= '9') {
-        setPin(p => (p.length < PIN_LENGTH ? p + e.key : p));
-      } else if (e.key === 'Backspace') {
-        setPin(p => p.slice(0, -1));
-      } else if (e.key === 'Escape') {
-        setPin('');
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isVerified, isVerifying]);
+
 
   const pressKey = (val: string) => {
     if (isVerified || isVerifying) return;
