@@ -1,6 +1,8 @@
 import createClient from 'openapi-fetch';
 
-export const BASE_URL = 'https://api.kdz.asia';
+// export const BASE_URL = 'https://api.kdz.asia';
+export const BASE_URL = 'http://localhost:8080';
+
 export const SYSTEM_TIMEOUT_MS = 3 * 60 * 1000; // 3 Minutes overall timeout for AI processing
 
 export interface KioskEnterDtoResponse {
@@ -118,7 +120,7 @@ export async function submitAnswerApi(sessionKey: string, answerText: string): P
       },
       body: JSON.stringify({
         sessionKey,
-        answerText,
+        answer: answerText,
       }),
       signal: controller.signal,
     });
