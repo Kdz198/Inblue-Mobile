@@ -220,13 +220,17 @@ function App() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
+  const lastAttemptedPinRef = useRef('');
   const isReady = pin.length === PIN_LENGTH;
 
   // Auto-submit PIN to POST https://api.kdz.asia/api/kiosk/enter/{sessionKey} when 6 digits entered
   useEffect(() => {
     if (!isReady || isVerifying || screenState !== 'PIN_ENTRY') return;
+    if (lastAttemptedPinRef.current === pin) return;
 
     let isMounted = true;
+    lastAttemptedPinRef.current = pin;
+
     async function verifyKioskPin() {
       setIsVerifying(true);
       setAuthError(null);
@@ -248,9 +252,8 @@ function App() {
             rawErr = 'Không tìm thấy lịch hẹn phỏng vấn cho mã PIN này. Vui lòng kiểm tra lại!';
           }
           setAuthError(rawErr);
-          setTimeout(() => {
-            if (isMounted) setPin('');
-          }, 1500);
+          // Reset pin state cleanly so candidate can enter a new 6-digit PIN
+          setPin('');
         }
       }
     }
@@ -262,6 +265,7 @@ function App() {
   const pressKey = useCallback((val: string) => {
     if (isVerifying || screenState !== 'PIN_ENTRY') return;
     setAuthError(null);
+    lastAttemptedPinRef.current = '';
     if (val === 'AC') { setPin(''); return; }
     if (val === 'DEL') { setPin(p => p.slice(0, -1)); return; }
     setPin(p => (p.length < PIN_LENGTH ? p + val : p));
@@ -274,6 +278,7 @@ function App() {
   const handleHardwareCancelled = () => {
     setPin('');
     setAuthError(null);
+    lastAttemptedPinRef.current = '';
     setScreenState('PIN_ENTRY');
   };
 
@@ -281,6 +286,7 @@ function App() {
     setPin('');
     setAiSessionKey('');
     setAuthError(null);
+    lastAttemptedPinRef.current = '';
     setScreenState('PIN_ENTRY');
   };
 
@@ -612,14 +618,6 @@ function createStyles(isWide: boolean) {
       backgroundColor: C.slotBg,
       borderWidth: 1.5,
       borderColor: C.slotBorder,
-    },
-    pinSlotActive: {
-      borderColor: C.slotActiveBorder,
-      shadowColor: C.slotActiveBorder,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.4,
-      shadowRadius: 12,
-      elevation: 6,
     },
     pinSlotFilled: {
       backgroundColor: C.slotFilledBg,
