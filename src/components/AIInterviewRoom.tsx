@@ -359,7 +359,6 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
           ) : (
             /* Active Interview Stage */
             <View style={styles.activeStageWrapper}>
-              {/* Floating Top Candidate Video Box */}
               <View style={styles.candidateCamPip}>
                 {Platform.OS === 'web' ? (
                   <video
@@ -371,13 +370,13 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                       width: '100%',
                       height: '100%',
                       objectFit: 'cover',
-                      borderRadius: 16,
+                      borderRadius: 10,
                       transform: 'scaleX(-1)',
                     }}
                   />
                 ) : (
                   <View style={styles.camPipFallback}>
-                    <Text style={{ fontSize: 32 }}>📷</Text>
+                    <Text style={{ fontSize: 28 }}>📷</Text>
                   </View>
                 )}
                 <View style={styles.camPipBadge}>
@@ -386,98 +385,141 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                 </View>
               </View>
 
-              {/* Central Glowing AI Avatar Hologram Node */}
-              <View style={styles.aiHolographicNode}>
-                {/* Outer Wave Pulse */}
-                <Animated.View
-                  style={[
-                    styles.aiWaveRing,
-                    {
-                      transform: [{ scale: waveScale }],
-                      opacity: waveAlpha,
-                    },
-                  ]}
-                />
+              <View style={styles.interviewFocusStack}>
+                <View style={styles.currentQuestionGlassCard}>
+                  <View style={styles.questionCardHeader}>
+                    <View style={styles.questionCardBadgeWrap}>
+                      <View style={styles.questionCardRule} />
+                      <Text style={styles.questionCardIcon}>◉</Text>
+                      <Text style={styles.questionCardBadge}>CÂU HỎI HIỆN TẠI</Text>
+                      <View style={styles.questionCardRule} />
+                    </View>
+                    <Text style={styles.questionCardPhase}>Q{String(currentQuestionIndex).padStart(2, '0')} / {String(totalQuestions).padStart(2, '0')}</Text>
+                  </View>
+                  {isLoadingQuestion ? (
+                    <Text style={styles.questionCardLoading}>Đang kết nối nhận câu hỏi từ AI...</Text>
+                  ) : (
+                    <Text style={styles.questionCardBody}>{latestAiQuestion}</Text>
+                  )}
+                  <View style={styles.questionBubbleTail} />
+                </View>
 
-                {/* Glowing Aura Halo */}
-                <Animated.View
-                  style={[
-                    styles.aiOrbHalo,
-                    {
-                      transform: [{ scale: orbScale }],
-                      opacity: orbGlow,
-                    },
-                  ]}
-                />
+                <View style={styles.aiHolographicNode}>
+                  <Animated.View
+                    style={[
+                      styles.aiWaveRing,
+                      {
+                        transform: [{ scale: waveScale }],
+                        opacity: waveAlpha,
+                      },
+                    ]}
+                  />
 
-                {/* Central Orb Sphere */}
-                <View style={styles.aiOrbSphere}>
-                  <View style={styles.aiOrbInnerAura}>
-                    <Text style={{ fontSize: 48 }}>🤖</Text>
+                  <Animated.View
+                    style={[
+                      styles.aiOrbHalo,
+                      {
+                        transform: [{ scale: orbScale }],
+                        opacity: orbGlow,
+                      },
+                    ]}
+                  />
+
+                  <View style={styles.aiOrbSphere}>
+                    <View style={styles.aiOrbInnerAura}>
+                      <Text style={styles.aiOrbFace}>🤖</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.aiStatusPill}>
+                    <View
+                      style={[
+                        styles.aiStatusDot,
+                        { backgroundColor: isRecording ? '#EF4444' : isAiSpeaking ? '#00A3FF' : '#98CBFF' },
+                      ]}
+                    />
+                    <Text style={styles.aiStatusText}>
+                      {isSubmitting
+                        ? 'AI đang phân tích...'
+                        : isRecording
+                        ? 'Đang thu âm giọng nói...'
+                        : isAiSpeaking
+                        ? 'AI đang đọc câu hỏi...'
+                        : 'Đang lắng nghe...'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.voiceInteractionHub}>
+                <View style={styles.micControlWrap}>
+                  <Pressable
+                    onPress={toggleRecording}
+                    disabled={isSubmitting || isLoadingQuestion}
+                    style={({ pressed }) => [
+                      styles.micOrbButton,
+                      isRecording ? styles.micOrbButtonStop : styles.micOrbButtonStart,
+                      pressed && { opacity: 0.9, transform: [{ scale: 0.96 }] },
+                    ]}
+                  >
+                    <Text style={styles.micOrbIcon}>{isRecording ? '■' : '🎤'}</Text>
+                  </Pressable>
+                  <View style={styles.micVisualizer}>
+                    <View style={[styles.micBar, styles.micBarOne]} />
+                    <View style={[styles.micBar, styles.micBarTwo]} />
+                    <View style={[styles.micBar, styles.micBarThree]} />
+                    <View style={[styles.micBar, styles.micBarTwo]} />
+                    <View style={[styles.micBar, styles.micBarOne]} />
                   </View>
                 </View>
 
-                {/* Live State Badge */}
-                <View style={styles.aiStatusPill}>
-                  <View
-                    style={[
-                      styles.aiStatusDot,
-                      { backgroundColor: isRecording ? '#EF4444' : isAiSpeaking ? '#00A3FF' : '#98CBFF' },
-                    ]}
-                  />
-                  <Text style={styles.aiStatusText}>
-                    {isSubmitting
-                      ? 'AI đang phân tích...'
-                      : isRecording
-                      ? 'Đang thu âm giọng nói...'
-                      : isAiSpeaking
-                      ? 'AI đang đọc câu hỏi...'
-                      : 'Đang lắng nghe...'}
-                  </Text>
+                <View style={styles.liveTranscriptHud}>
+                  <View style={styles.hudCornerTopLeft} />
+                  <View style={styles.hudCornerBottomRight} />
+                  <View style={styles.transcriptHeader}>
+                    <View style={styles.transcriptTitleWrap}>
+                      <Text style={styles.transcriptIcon}>▤</Text>
+                      <Text style={styles.transcriptTitle}>BẢN DỊCH TRỰC TIẾP</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => setIsDrawerOpen(true)}
+                      style={({ pressed }) => [styles.transcriptEditBtn, pressed && { opacity: 0.75 }]}
+                    >
+                      <Text style={styles.transcriptEditText}>CHỈNH SỬA</Text>
+                      <Text style={styles.transcriptEditIcon}>✎</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.transcriptBody}>
+                    <Text style={styles.transcriptText}>
+                      {answerInput.trim()
+                        ? `"${answerInput.trim()}"`
+                        : isRecording
+                        ? '"Đang lắng nghe câu trả lời của bạn..."'
+                        : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
+                    </Text>
+                    {isRecording && <View style={styles.transcriptCursor} />}
+                  </View>
+                  <View style={styles.transcriptFooter}>
+                    <Text style={styles.transcriptState}>{isRecording ? 'LISTENING...' : 'VOICE READY'}</Text>
+                    <Pressable
+                      onPress={handleSubmitAnswer}
+                      disabled={!answerInput.trim() || isSubmitting}
+                      style={({ pressed }) => [
+                        styles.sendAnswerBtn,
+                        (!answerInput.trim() || isSubmitting) && styles.sendAnswerBtnDisabled,
+                        pressed && { opacity: 0.85 },
+                      ]}
+                    >
+                      <Text style={styles.sendAnswerText}>GỬI PHẢN HỒI</Text>
+                      <Text style={styles.sendAnswerIcon}>➤</Text>
+                    </Pressable>
+                  </View>
                 </View>
-              </View>
-
-              {/* Current Question Glass Card */}
-              <View style={styles.currentQuestionGlassCard}>
-                <View style={styles.questionCardHeader}>
-                  <Text style={styles.questionCardBadge}>CÂU HỎI TRỰC TIẾP</Text>
-                  <Text style={styles.questionCardPhase}>{currentPhase}</Text>
-                </View>
-                {isLoadingQuestion ? (
-                  <Text style={styles.questionCardLoading}>Đang kết nối nhận câu hỏi từ AI...</Text>
-                ) : (
-                  <Text style={styles.questionCardBody}>{latestAiQuestion}</Text>
-                )}
-              </View>
-
-              {/* Giant Primary Voice Control Button */}
-              <View style={styles.primaryVoiceBar}>
-                <Pressable
-                  delayPressIn={0}
-                  onPress={toggleRecording}
-                  disabled={isSubmitting || isLoadingQuestion}
-                  style={({ pressed }) => [
-                    styles.giantMicBtn,
-                    isRecording ? styles.giantMicBtnStop : styles.giantMicBtnStart,
-                    pressed && { opacity: 0.9, transform: [{ scale: 0.97 }] },
-                  ]}
-                >
-                  <Text style={styles.giantMicIcon}>
-                    {isRecording ? '🔴' : '🎤'}
-                  </Text>
-                  <Text style={styles.giantMicText}>
-                    {isSubmitting
-                      ? 'Đang gửi câu trả lời...'
-                      : isRecording
-                      ? 'Dừng Ghi Âm & Gửi Trả Lời'
-                      : 'Bắt Đầu Trả Lời (Mở Mic)'}
-                  </Text>
-                </Pressable>
 
                 <Text style={styles.giantMicHint}>
                   {isRecording
-                    ? 'Đang thu âm giọng nói... Nhấn nút màu đỏ khi bạn nói xong để gửi câu trả lời.'
-                    : 'Nhấn vào nút Mic để bắt đầu nói trực tiếp với Trợ lý phỏng vấn AI.'}
+                    ? 'Nhấn mic lần nữa để tạm dừng ghi âm và gửi câu trả lời.'
+                    : 'Nhấn vào mic để bắt đầu nói trực tiếp với Trợ lý phỏng vấn AI.'}
                 </Text>
               </View>
             </View>
@@ -565,14 +607,14 @@ const styles = StyleSheet.create({
 
   /* ── Top Header Navigation ── */
   topHeader: {
-    height: 64,
-    backgroundColor: 'rgba(18, 20, 20, 0.6)',
+    height: 72,
+    backgroundColor: 'rgba(7, 14, 30, 0.88)',
     borderBottomWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.15)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 28,
+    paddingHorizontal: 32,
     zIndex: 20,
     ...(Platform.OS === 'web' ? {
       backdropFilter: 'blur(20px)',
@@ -588,7 +630,7 @@ const styles = StyleSheet.create({
     color: '#98CBFF',
     fontSize: 22,
     fontWeight: '900',
-    letterSpacing: -1,
+    letterSpacing: 0,
   },
   brandBadge: {
     backgroundColor: 'rgba(152, 203, 255, 0.1)',
@@ -717,25 +759,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
-    padding: 24,
+    paddingHorizontal: 64,
+    paddingVertical: 40,
+    backgroundColor: 'rgba(2, 8, 23, 0.1)',
   },
 
   /* ── Candidate PIP Camera Top Right ── */
   candidateCamPip: {
     position: 'absolute',
-    top: 24,
-    right: 28,
-    width: 220,
-    height: 140,
-    borderRadius: 18,
+    top: 30,
+    right: 34,
+    width: 168,
+    height: 104,
+    borderRadius: 10,
     backgroundColor: '#020617',
     borderWidth: 1.5,
-    borderColor: 'rgba(152, 203, 255, 0.3)',
+    borderColor: 'rgba(152, 203, 255, 0.26)',
     overflow: 'hidden',
     shadowColor: '#00A3FF',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
     zIndex: 10,
   },
   camPipFallback: {
@@ -771,66 +815,81 @@ const styles = StyleSheet.create({
   activeStageWrapper: {
     flex: 1,
     width: '100%',
-    maxWidth: 720,
+    maxWidth: 820,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingVertical: 12,
+  },
+  interviewFocusStack: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 32,
   },
   aiHolographicNode: {
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    marginVertical: 12,
+    width: 360,
+    height: 360,
+    marginTop: 8,
   },
   aiWaveRing: {
     position: 'absolute',
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    borderWidth: 2,
-    borderColor: 'rgba(152, 203, 255, 0.4)',
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 163, 255, 0.36)',
   },
   aiOrbHalo: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: 'rgba(0, 163, 255, 0.25)',
+    width: 244,
+    height: 244,
+    borderRadius: 122,
+    backgroundColor: 'rgba(0, 163, 255, 0.18)',
   },
   aiOrbSphere: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
     backgroundColor: '#0F172A',
     borderWidth: 2,
     borderColor: '#98CBFF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
     shadowColor: '#00A3FF',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.7,
-    shadowRadius: 20,
+    shadowRadius: 34,
     elevation: 10,
   },
   aiOrbInnerAura: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: 'rgba(0, 163, 255, 0.2)',
+    width: 138,
+    height: 138,
+    borderRadius: 69,
+    backgroundColor: 'rgba(0, 163, 255, 0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  aiOrbFace: {
+    fontSize: 76,
+  },
   aiStatusPill: {
+    position: 'absolute',
+    bottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(26, 34, 53, 0.7)',
+    backgroundColor: 'rgba(10, 21, 43, 0.92)',
     borderWidth: 1,
-    borderColor: 'rgba(152, 203, 255, 0.25)',
+    borderColor: 'rgba(0, 163, 255, 0.34)',
     borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOpacity: 0.45,
+    shadowRadius: 22,
     ...(Platform.OS === 'web' ? {
       backdropFilter: 'blur(12px)',
       WebkitBackdropFilter: 'blur(12px)',
@@ -849,38 +908,64 @@ const styles = StyleSheet.create({
 
   /* ── Current Question Glass Card ── */
   currentQuestionGlassCard: {
-    width: '100%',
-    backgroundColor: 'rgba(18, 20, 20, 0.55)',
+    width: '88%',
+    maxWidth: 680,
+    backgroundColor: 'rgba(26, 34, 53, 0.64)',
     borderWidth: 1,
-    borderColor: 'rgba(152, 203, 255, 0.25)',
-    borderRadius: 20,
-    padding: 24,
-    marginVertical: 16,
-    shadowColor: '#000',
+    borderColor: 'rgba(0, 163, 255, 0.36)',
+    borderRadius: 16,
+    paddingHorizontal: 30,
+    paddingTop: 24,
+    paddingBottom: 24,
+    marginBottom: 20,
+    alignItems: 'center',
+    position: 'relative',
+    shadowColor: '#00A3FF',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
+    shadowOpacity: 0.18,
+    shadowRadius: 34,
     ...(Platform.OS === 'web' ? {
-      backdropFilter: 'blur(16px)',
-      WebkitBackdropFilter: 'blur(16px)',
+      backdropFilter: 'blur(24px)',
+      WebkitBackdropFilter: 'blur(24px)',
     } as any : {}),
   },
   questionCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    justifyContent: 'center',
+    gap: 16,
+    marginBottom: 14,
+    width: '100%',
   },
   questionCardBadge: {
     color: '#00A3FF',
     fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 1,
+    letterSpacing: 2.4,
   },
   questionCardPhase: {
     color: '#94A3B8',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+    position: 'absolute',
+    right: 0,
+  },
+  questionCardBadgeWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  questionCardRule: {
+    width: 34,
+    height: 1,
+    backgroundColor: 'rgba(0, 163, 255, 0.32)',
+  },
+  questionCardIcon: {
+    color: '#00A3FF',
+    fontSize: 14,
+    lineHeight: 14,
   },
   questionCardLoading: {
     color: '#98CBFF',
@@ -890,9 +975,22 @@ const styles = StyleSheet.create({
   },
   questionCardBody: {
     color: '#F1F5F9',
-    fontSize: 18,
-    lineHeight: 28,
+    fontSize: 20,
+    lineHeight: 31,
     fontWeight: '600',
+    letterSpacing: 0,
+    textAlign: 'center',
+  },
+  questionBubbleTail: {
+    position: 'absolute',
+    bottom: -11,
+    width: 22,
+    height: 22,
+    backgroundColor: 'rgba(26, 34, 53, 0.64)',
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(0, 163, 255, 0.34)',
+    transform: [{ rotate: '45deg' }],
   },
 
   /* ── Primary Voice Action Bar (Bottom) ── */
@@ -906,8 +1004,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
     width: '100%',
-    height: 64,
-    borderRadius: 999,
+    height: 68,
+    borderRadius: 18,
     shadowColor: '#00A3FF',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
@@ -915,7 +1013,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   giantMicBtnStart: {
-    backgroundColor: '#00A3FF',
+    backgroundColor: '#079CEB',
   },
   giantMicBtnStop: {
     backgroundColor: '#EF4444',
@@ -926,21 +1024,236 @@ const styles = StyleSheet.create({
   },
   giantMicText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   giantMicHint: {
     color: '#94A3B8',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
   },
+  voicePrivacyNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  voicePrivacyDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  voicePrivacyText: {
+    color: '#607B99',
+    fontSize: 10,
+    fontWeight: '600',
+  },
 
   /* ── Right Collapsible Secondary Chat Drawer ── */
+  voiceInteractionHub: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 20,
+  },
+  micControlWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micOrbButton: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 163, 255, 0.42)',
+    shadowColor: '#00A3FF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.34,
+    shadowRadius: 30,
+  },
+  micOrbButtonStart: {
+    backgroundColor: 'rgba(0, 163, 255, 0.14)',
+  },
+  micOrbButtonStop: {
+    backgroundColor: 'rgba(239, 68, 68, 0.18)',
+    borderColor: 'rgba(239, 68, 68, 0.55)',
+    shadowColor: '#EF4444',
+  },
+  micOrbIcon: {
+    color: '#98CBFF',
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  micVisualizer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    height: 44,
+    marginTop: 12,
+  },
+  micBar: {
+    width: 4,
+    borderRadius: 4,
+    backgroundColor: '#00A3FF',
+    shadowColor: '#00A3FF',
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+  },
+  micBarOne: {
+    height: 16,
+    opacity: 0.5,
+  },
+  micBarTwo: {
+    height: 28,
+    opacity: 0.72,
+  },
+  micBarThree: {
+    height: 40,
+    opacity: 1,
+  },
+  liveTranscriptHud: {
+    width: '100%',
+    maxWidth: 760,
+    minHeight: 156,
+    backgroundColor: 'rgba(5, 10, 26, 0.68)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 163, 255, 0.22)',
+    borderRadius: 12,
+    padding: 18,
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOpacity: 0.38,
+    shadowRadius: 26,
+    ...(Platform.OS === 'web' ? {
+      backdropFilter: 'blur(18px)',
+      WebkitBackdropFilter: 'blur(18px)',
+    } as any : {}),
+  },
+  hudCornerTopLeft: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 34,
+    height: 34,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderColor: '#00A3FF',
+  },
+  hudCornerBottomRight: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 34,
+    height: 34,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#00A3FF',
+  },
+  transcriptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderColor: 'rgba(0, 163, 255, 0.16)',
+    paddingBottom: 10,
+    marginBottom: 12,
+  },
+  transcriptTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  transcriptIcon: {
+    color: '#00A3FF',
+    fontSize: 14,
+  },
+  transcriptTitle: {
+    color: '#00A3FF',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  transcriptEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  transcriptEditText: {
+    color: '#9CAFC5',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  transcriptEditIcon: {
+    color: '#9CAFC5',
+    fontSize: 13,
+  },
+  transcriptBody: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  transcriptText: {
+    flex: 1,
+    color: '#E2E8F0',
+    fontSize: 17,
+    lineHeight: 27,
+    fontWeight: '400',
+  },
+  transcriptCursor: {
+    width: 5,
+    height: 22,
+    marginTop: 2,
+    marginLeft: 4,
+    backgroundColor: '#00A3FF',
+    borderRadius: 2,
+  },
+  transcriptFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  transcriptState: {
+    color: 'rgba(148, 163, 184, 0.62)',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
+  sendAnswerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0, 163, 255, 0.13)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 163, 255, 0.34)',
+    borderRadius: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  sendAnswerBtnDisabled: {
+    opacity: 0.45,
+  },
+  sendAnswerText: {
+    color: '#98CBFF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  sendAnswerIcon: {
+    color: '#98CBFF',
+    fontSize: 13,
+  },
   chatDrawer: {
-    width: 360,
-    backgroundColor: 'rgba(11, 19, 43, 0.85)',
+    width: 328,
+    backgroundColor: 'rgba(7, 16, 34, 0.94)',
     borderLeftWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.15)',
     display: 'flex',
@@ -960,7 +1273,7 @@ const styles = StyleSheet.create({
   },
   drawerHeader: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 20,
     borderBottomWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     flexDirection: 'row',
@@ -969,7 +1282,7 @@ const styles = StyleSheet.create({
   },
   drawerTitle: {
     color: '#F1F5F9',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
   },
   drawerCountText: {
@@ -999,12 +1312,12 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   drawerBubbleAi: {
-    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    backgroundColor: 'rgba(20, 39, 67, 0.72)',
     borderWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.15)',
   },
   drawerBubbleUser: {
-    backgroundColor: '#00A3FF',
+    backgroundColor: '#087FBF',
   },
   drawerRole: {
     color: 'rgba(255, 255, 255, 0.7)',
