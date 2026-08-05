@@ -1,492 +1,713 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  GestureResponderEvent,
+  Animated,
+  Easing,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-const SESSION_KEY_LENGTH = 6;
+const PIN_LENGTH = 6;
 
-type ThemeName = 'dark' | 'light';
-type Pointer = {
-  x: number;
-  y: number;
+const C = {
+  bg: '#050A1A',
+  surface: '#121414',
+  primary: '#98cbff',
+  primaryDeep: '#00a3ff',
+  onSurface: '#e2e2e2',
+  onSurfaceVariant: '#bec7d4',
+  white10: 'rgba(255,255,255,0.1)',
+  white03: 'rgba(255,255,255,0.03)',
+  glassBg: 'rgba(26,34,53,0.4)',
+  slotBg: 'rgba(26,34,53,0.6)',
+  slotBorder: 'rgba(152,203,255,0.2)',
+  slotActiveBorder: '#98cbff',
+  slotActiveGlow: 'rgba(152,203,255,0.4)',
+  slotFilledBg: '#98cbff',
+  slotFilledGlow: 'rgba(152,203,255,0.6)',
+  keyBg: 'rgba(26,34,53,0.4)',
+  keyPressBg: 'rgba(152,203,255,0.2)',
 };
 
-const palettes = {
-  dark: {
-    accent: '#7c5cff',
-    accentSoft: 'rgba(124, 92, 255, 0.16)',
-    bg: '#070b14',
-    bgAlt: '#0b1220',
-    border: '#22304d',
-    card: '#101827',
-    cardElevated: '#131d31',
-    glow: 'rgba(59, 130, 246, 0.24)',
-    glowAlt: 'rgba(16, 185, 129, 0.18)',
-    ink: '#f8fbff',
-    muted: '#a9b7cf',
-    mutedStrong: '#d7e0ef',
-    success: '#22c55e',
-    warning: '#f59e0b',
-  },
-  light: {
-    accent: '#2952d9',
-    accentSoft: 'rgba(41, 82, 217, 0.1)',
-    bg: '#eef3fb',
-    bgAlt: '#f8fbff',
-    border: '#c8d5ea',
-    card: '#ffffff',
-    cardElevated: '#f4f7fc',
-    glow: 'rgba(41, 82, 217, 0.18)',
-    glowAlt: 'rgba(20, 184, 166, 0.16)',
-    ink: '#101828',
-    muted: '#58708f',
-    mutedStrong: '#25364d',
-    success: '#059669',
-    warning: '#d97706',
-  },
-};
+/* ───── Ultra-Clean Cyber Constellation Canvas Background ───── */
+function CyberCanvasBackground() {
+  const canvasRef = useRef<any>(null);
 
-function App() {
-  const systemScheme = useColorScheme();
-  const { height, width } = useWindowDimensions();
-  const [selectedTheme, setSelectedTheme] = useState<ThemeName>(
-    systemScheme === 'light' ? 'light' : 'dark',
-  );
-  const [sessionKey, setSessionKey] = useState('');
-  const [pointer, setPointer] = useState<Pointer>({
-    x: width * 0.54,
-    y: height * 0.38,
-  });
-  const [isThemeHovered, setIsThemeHovered] = useState(false);
-  const [isInputFocused, setIsInputFocused] = useState(false);
-  const [isPadPressed, setIsPadPressed] = useState(false);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !canvasRef.current) return;
+    const canvas: any = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-  const theme = palettes[selectedTheme];
-  const styles = useMemo(() => createStyles(theme), [theme]);
+    let width = (canvas.width = canvas.clientWidth || 800);
+    let height = (canvas.height = canvas.clientHeight || 600);
 
-  const normalizedSessionKey = useMemo(
-    () => sessionKey.replace(/[^a-zA-Z0-9]/g, '').toUpperCase(),
-    [sessionKey],
-  );
-  const isReady = normalizedSessionKey.length === SESSION_KEY_LENGTH;
+    const particleCount = 40;
+    const particles = Array.from({ length: particleCount }, () => ({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4,
+      radius: Math.random() * 2 + 1,
+      alpha: Math.random() * 0.6 + 0.3,
+    }));
 
-  const progressPercent =
-    (normalizedSessionKey.length / SESSION_KEY_LENGTH) * 100;
+    let t = 0;
+    let animId: number;
 
-  const updatePointer = (event: GestureResponderEvent) => {
-    setPointer({
-      x: event.nativeEvent.locationX,
-      y: event.nativeEvent.locationY,
-    });
-  };
+    function render() {
+      if (!canvas || !ctx) return;
+      if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+        width = canvas.width = canvas.clientWidth || 800;
+        height = canvas.height = canvas.clientHeight || 600;
+      }
 
-  const handleChangeSessionKey = (value: string) => {
-    setSessionKey(
-      value
-        .replace(/[^a-zA-Z0-9]/g, '')
-        .toUpperCase()
-        .slice(0, SESSION_KEY_LENGTH),
-    );
-  };
+      t += 0.008;
 
-  const toggleTheme = () => {
-    setSelectedTheme(current => (current === 'dark' ? 'light' : 'dark'));
-  };
+      ctx.fillStyle = '#050A1A';
+      ctx.fillRect(0, 0, width, height);
 
-  const dynamicHandlers =
-    Platform.OS === 'web'
-      ? {
-          onMouseMove: (event: {
-            nativeEvent: { offsetX: number; offsetY: number };
-          }) => {
-            setPointer({
-              x: event.nativeEvent.offsetX,
-              y: event.nativeEvent.offsetY,
-            });
-          },
+      // Soft glowing ambient orbs
+      const orb1X = width * (0.35 + 0.2 * Math.sin(t * 0.5));
+      const orb1Y = height * (0.35 + 0.2 * Math.cos(t * 0.3));
+      const g1 = ctx.createRadialGradient(orb1X, orb1Y, 0, orb1X, orb1Y, width * 0.55);
+      g1.addColorStop(0, 'rgba(0, 163, 255, 0.2)');
+      g1.addColorStop(1, 'rgba(5, 10, 26, 0)');
+      ctx.fillStyle = g1;
+      ctx.fillRect(0, 0, width, height);
+
+      const orb2X = width * (0.75 - 0.2 * Math.cos(t * 0.4));
+      const orb2Y = height * (0.65 - 0.2 * Math.sin(t * 0.6));
+      const g2 = ctx.createRadialGradient(orb2X, orb2Y, 0, orb2X, orb2Y, width * 0.45);
+      g2.addColorStop(0, 'rgba(99, 102, 241, 0.16)');
+      g2.addColorStop(1, 'rgba(5, 10, 26, 0)');
+      ctx.fillStyle = g2;
+      ctx.fillRect(0, 0, width, height);
+
+      // Constellation lines
+      for (let i = 0; i < particleCount; i++) {
+        for (let j = i + 1; j < particleCount; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 140) {
+            const lineAlpha = (1 - dist / 140) * 0.2;
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(152, 203, 255, ${lineAlpha})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
         }
-      : {};
+      }
+
+      // Particles
+      for (let p of particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.x < 0 || p.x > width) p.vx *= -1;
+        if (p.y < 0 || p.y > height) p.vy *= -1;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(152, 203, 255, ${p.alpha})`;
+        ctx.fill();
+      }
+
+      animId = requestAnimationFrame(render);
+    }
+
+    animId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+  if (Platform.OS === 'web') {
+    return (
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <canvas
+          ref={canvasRef as any}
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(5,10,26,0.3)' }]} />
+      </View>
+    );
+  }
+
+  return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#050A1A' }]} />;
+}
+
+/* ───── Lock Open Icon Component ───── */
+function LockOpenIcon() {
+  if (Platform.OS === 'web') {
+    return (
+      <View style={{ marginBottom: 16 }}>
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#98cbff" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+        </svg>
+      </View>
+    );
+  }
+  return <Text style={{ fontSize: 44, marginBottom: 16 }}>🔓</Text>;
+}
+
+/* ───── Real-Time Clock Widget (Right Panel) ───── */
+function Clock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const h = String(now.getHours()).padStart(2, '0');
+  const m = String(now.getMinutes()).padStart(2, '0');
+  return (
+    <View style={s.glassBadgeBox}>
+      {Platform.OS === 'web' ? (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#98cbff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+      ) : (
+        <Text style={s.glassBadgeIcon}>⏱</Text>
+      )}
+      <Text style={s.glassBadgeText}>{h}:{m}</Text>
+    </View>
+  );
+}
+
+/* ───── Real-Time Date Text (Left Panel Top Right) ───── */
+function RealTimeDateWidget({ styles }: { styles: any }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+
+  return (
+    <Text style={styles.pureDateText}>
+      {dd}-{mm}-{yyyy}
+    </Text>
+  );
+}
+
+/* ───── Main App ───── */
+function App() {
+  const { width } = useWindowDimensions();
+  const isWide = width >= 768;
+
+  const [pin, setPin] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+
+  const inputRef = useRef<TextInput>(null);
+  const isReady = pin.length === PIN_LENGTH;
+
+  useEffect(() => {
+    if (isReady && !isVerifying && !isVerified) {
+      setIsVerifying(true);
+      Keyboard.dismiss();
+      const t = setTimeout(() => { setIsVerifying(false); setIsVerified(true); }, 1200);
+      return () => clearTimeout(t);
+    }
+  }, [isReady, isVerifying, isVerified]);
+
+  const pressKey = (val: string) => {
+    if (isVerified || isVerifying) return;
+    if (val === 'AC') { setPin(''); return; }
+    if (val === 'DEL') { setPin(p => p.slice(0, -1)); return; }
+    if (pin.length < PIN_LENGTH) setPin(p => p + val);
+  };
+
+  const handleTextChange = (text: string) => {
+    if (isVerified || isVerifying) return;
+    setPin(text.replace(/[^0-9]/g, '').slice(0, PIN_LENGTH));
+  };
+
+  const handleReset = () => {
+    setPin(''); setIsVerified(false); setIsVerifying(false);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const styles = useMemo(() => createStyles(isWide), [isWide]);
 
   return (
     <SafeAreaProvider>
-      <StatusBar
-        barStyle={selectedTheme === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor={theme.bg}
-      />
-      <SafeAreaView
-        {...dynamicHandlers}
-        onResponderGrant={updatePointer}
-        onResponderMove={updatePointer}
-        onStartShouldSetResponder={() => true}
-        style={styles.screen}
-      >
-        <View
-          pointerEvents="none"
-          style={[
-            styles.pointerGlow,
-            {
-              left: pointer.x - 220,
-              top: pointer.y - 220,
-            },
-          ]}
-        />
-        <View pointerEvents="none" style={styles.cornerGlow} />
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <SafeAreaView style={styles.screen}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.keyboardArea}
+          style={styles.flex1}
         >
-          <View style={styles.shell}>
-            <View style={styles.header}>
-              <View style={styles.brandRow}>
-                <View style={styles.brandMark}>
-                  <Text style={styles.brandMarkText}>IN</Text>
+          <View style={styles.layout}>
+            {/* ── Left Panel: Context & Identity ── */}
+            <View style={styles.leftPanel}>
+              <CyberCanvasBackground />
+
+              {/* Real-time Date Widget at Top Right of Left Panel */}
+              {isWide && (
+                <View style={styles.dateContainer}>
+                  <RealTimeDateWidget styles={styles} />
                 </View>
-                <View>
-                  <Text style={styles.brandName}>INBLUE KIOSK</Text>
-                  <Text style={styles.brandMeta}>Trạm phỏng vấn AI</Text>
+              )}
+
+              {/* Header Title Group */}
+              <View style={styles.leftHeaderGroup}>
+                <Text style={styles.brandLogo}>INBLUE</Text>
+                <Text style={styles.heroTitle}>Phỏng Vấn{'\n'}AI Tại Kiosk</Text>
+                <View style={styles.statusPill}>
+                  <View style={styles.statusDot} />
+                  <Text style={styles.statusLabel}>System Online</Text>
                 </View>
               </View>
 
-              <Pressable
-                accessibilityLabel="Đổi giao diện sáng tối"
-                onHoverIn={() => setIsThemeHovered(true)}
-                onHoverOut={() => setIsThemeHovered(false)}
-                onPress={toggleTheme}
-                style={({ pressed }) => [
-                  styles.themeToggle,
-                  (isThemeHovered || pressed) && styles.themeToggleActive,
-                ]}
-              >
-                <Text style={styles.themeIcon}>
-                  {selectedTheme === 'dark' ? '☾' : '☀'}
+              {/* Clean Minimalist Credits Line */}
+              {isWide && (
+                <Text style={styles.creditsText}>
+                  FPT UNIVERSITY • SOFTWARE ENGINEERING • GVHD: LÂM HỮU KHÁNH PHƯƠNG
                 </Text>
-                <Text style={styles.themeText}>
-                  {selectedTheme === 'dark' ? 'Dark' : 'Light'}
-                </Text>
-              </Pressable>
+              )}
             </View>
 
-            <View style={styles.content}>
-              <View style={styles.statusPill}>
-                <View style={styles.statusPulse} />
-                <Text style={styles.statusText}>Sẵn sàng nhận mã phiên</Text>
-              </View>
-
-              <Text style={styles.title}>Nhập mã PIN phỏng vấn</Text>
-              <Text style={styles.subtitle}>
-                Dùng mã 6 số được cấp sau khi đặt lịch Kiosk. Nếu chưa thấy mã,
-                vui lòng kiểm tra email hoặc thông báo trên tài khoản InBlue.
-              </Text>
-
-              <Pressable
-                onPressIn={() => setIsPadPressed(true)}
-                onPressOut={() => setIsPadPressed(false)}
-                style={[
-                  styles.inputPad,
-                  isInputFocused && styles.inputPadFocused,
-                  isReady && styles.inputPadReady,
-                  isPadPressed && styles.inputPadPressed,
-                ]}
-              >
-                <View style={styles.inputTopLine}>
-                  <Text style={styles.inputLabel}>Mã phiên</Text>
-                  <Text
-                    style={[styles.counter, isReady && styles.counterReady]}
-                  >
-                    {normalizedSessionKey.length}/{SESSION_KEY_LENGTH}
-                  </Text>
-                </View>
-
-                <TextInput
-                  accessibilityLabel="Nhập mã PIN phiên phỏng vấn"
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  autoFocus
-                  keyboardType="number-pad"
-                  maxLength={SESSION_KEY_LENGTH}
-                  onBlur={() => setIsInputFocused(false)}
-                  onChangeText={handleChangeSessionKey}
-                  onFocus={() => setIsInputFocused(true)}
-                  placeholder="083405"
-                  placeholderTextColor={
-                    selectedTheme === 'dark' ? '#51627e' : '#9aabc2'
-                  }
-                  returnKeyType="done"
-                  selectTextOnFocus
-                  style={styles.input}
-                  value={normalizedSessionKey}
+            {/* ── Right Panel: Interaction Workspace ── */}
+            <View style={styles.rightPanel}>
+              {/* Subtle Grid Decoration */}
+              {Platform.OS === 'web' && (
+                <View
+                  pointerEvents="none"
+                  style={[StyleSheet.absoluteFill, {
+                    opacity: 0.5,
+                    backgroundImage: `linear-gradient(${C.white03} 1px, transparent 1px), linear-gradient(90deg, ${C.white03} 1px, transparent 1px)`,
+                    backgroundSize: '40px 40px',
+                  } as any]}
                 />
+              )}
 
-                <View style={styles.progressTrack}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      {
-                        width: `${progressPercent}%`,
-                      },
-                    ]}
-                  />
-                </View>
-              </Pressable>
+              {/* Clock - Top Right of Right Panel */}
+              <View style={styles.clockContainer}>
+                <Clock />
+              </View>
 
-              <Text
-                style={[styles.helperText, isReady && styles.helperTextReady]}
-              >
-                {isReady
-                  ? 'Mã đã đủ 6 ký tự. Bạn có thể tiếp tục tại trạm Kiosk.'
-                  : 'Chạm vào ô nhập và nhập đúng mã PIN trên lịch hẹn của bạn.'}
-              </Text>
-            </View>
+              {/* Center PIN Workspace */}
+              <View style={styles.rightCenter}>
+                {isVerified ? (
+                  /* Success */
+                  <View style={styles.centerBox}>
+                    <Text style={styles.successIcon}>✓</Text>
+                    <Text style={styles.successTitle}>Mã PIN Hợp Lệ</Text>
+                    <Text style={styles.successSub}>
+                      Phiên phỏng vấn AI tại Kiosk đã sẵn sàng.
+                    </Text>
+                    <Pressable onPress={() => {}} style={({ pressed }) => [styles.goBtn, pressed && styles.goBtnPressed]}>
+                      <Text style={styles.goBtnText}>Bắt Đầu Phỏng Vấn →</Text>
+                    </Pressable>
+                    <Pressable onPress={handleReset}>
+                      <Text style={styles.resetText}>Nhập lại mã khác</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  /* PIN Entry */
+                  <View style={styles.centerBox}>
+                    {/* Material Lock Open Icon */}
+                    <LockOpenIcon />
 
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>
-                Gặp sự cố kỹ thuật? Liên hệ nhân viên hỗ trợ tại khu vực Kiosk.
-              </Text>
+                    <Text style={styles.instruction}>
+                      Nhập mã PIN 6 số từ lịch hẹn của bạn để bắt đầu.
+                    </Text>
+
+                    {/* 6 Circular PIN Slots */}
+                    <Pressable onPress={() => inputRef.current?.focus()} style={styles.pinRow}>
+                      {Array.from({ length: PIN_LENGTH }).map((_, idx) => {
+                        const filled = idx < pin.length;
+                        const active = idx === pin.length && isFocused;
+                        return (
+                          <View
+                            key={idx}
+                            style={[
+                              styles.pinSlot,
+                              active && styles.pinSlotActive,
+                              filled && styles.pinSlotFilled,
+                            ]}
+                          />
+                        );
+                      })}
+                    </Pressable>
+
+                    {/* Verifying Spinner / Label */}
+                    {isVerifying && (
+                      <Text style={styles.verifyingText}>Đang xác minh...</Text>
+                    )}
+
+                    {/* Hidden TextInput */}
+                    <TextInput
+                      ref={inputRef}
+                      accessibilityLabel="Nhập mã PIN"
+                      autoCapitalize="none" autoCorrect={false} autoFocus
+                      keyboardType="number-pad" maxLength={PIN_LENGTH}
+                      onBlur={() => setIsFocused(false)}
+                      onFocus={() => setIsFocused(true)}
+                      onChangeText={handleTextChange}
+                      style={styles.hiddenInput} value={pin}
+                    />
+
+                    {/* Glass Keypad */}
+                    <View style={styles.keypad}>
+                      {['1','2','3','4','5','6','7','8','9','AC','0','DEL'].map(k => {
+                        const isAction = k === 'AC' || k === 'DEL';
+                        return (
+                          <Pressable
+                            key={k}
+                            onPress={() => pressKey(k)}
+                            style={({ pressed }) => [
+                              styles.key,
+                              pressed && styles.keyPressed,
+                            ]}
+                          >
+                            {k === 'DEL' && Platform.OS === 'web' ? (
+                              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bec7d4" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path>
+                                <line x1="18" y1="9" x2="12" y2="15"></line>
+                                <line x1="12" y1="9" x2="18" y2="15"></line>
+                              </svg>
+                            ) : (
+                              <Text style={[styles.keyText, isAction && styles.keyActionText]}>
+                                {k === 'DEL' ? '⌫' : k}
+                              </Text>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
         </KeyboardAvoidingView>
+
+        {/* Mobile Credits */}
+        {!isWide && (
+          <Text style={styles.mobileCredits}>
+            CAPSTONE PROJECT • FPT UNIVERSITY HCM • SE • GVHD: LÂM HỮU KHÁNH PHƯƠNG
+          </Text>
+        )}
       </SafeAreaView>
     </SafeAreaProvider>
   );
 }
 
-function createStyles(theme: (typeof palettes)[ThemeName]) {
+/* ───── Shared Styles ───── */
+const s = StyleSheet.create({
+  glassBadgeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: C.glassBg,
+    borderWidth: 1,
+    borderColor: C.white10,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    ...(Platform.OS === 'web' ? {
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+    } as any : {}),
+  },
+  glassBadgeIcon: {
+    fontSize: 18,
+    color: C.primary,
+  },
+  glassBadgeText: {
+    color: C.onSurface,
+    fontSize: 20,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    letterSpacing: 1.5,
+  },
+});
+
+function createStyles(isWide: boolean) {
   return StyleSheet.create({
+    pureDateText: {
+      color: '#98cbff',
+      fontSize: isWide ? 28 : 20,
+      fontWeight: '800',
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+      letterSpacing: 2,
+    },
+    flex1: { flex: 1 },
     screen: {
       flex: 1,
-      backgroundColor: theme.bg,
+      backgroundColor: C.bg,
+      minHeight: Platform.OS === 'web' ? ('100vh' as any) : undefined,
+    },
+    layout: {
+      flex: 1,
+      flexDirection: isWide ? 'row' : 'column',
+    },
+
+    /* ── Left Panel ── */
+    leftPanel: {
+      flex: isWide ? 0.5 : undefined,
+      minHeight: isWide ? undefined : 200,
+      justifyContent: 'space-between',
+      padding: isWide ? 64 : 28,
+      position: 'relative',
       overflow: 'hidden',
     },
-    pointerGlow: {
+    dateContainer: {
       position: 'absolute',
-      width: 440,
-      height: 440,
-      borderRadius: 220,
-      backgroundColor: theme.glow,
-      opacity: 0.92,
-      transform: [{ scale: 1.02 }],
+      top: isWide ? 64 : 20,
+      right: isWide ? 56 : 24,
+      zIndex: 10,
     },
-    cornerGlow: {
-      position: 'absolute',
-      right: -130,
-      bottom: -170,
-      width: 430,
-      height: 430,
-      borderRadius: 215,
-      backgroundColor: theme.glowAlt,
-      opacity: 0.9,
+    leftHeaderGroup: {
+      zIndex: 1,
+      alignSelf: 'flex-start',
     },
-    keyboardArea: {
-      flex: 1,
-    },
-    shell: {
-      flex: 1,
-      paddingHorizontal: 46,
-      paddingVertical: 30,
-    },
-    header: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      gap: 18,
-    },
-    brandRow: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: 14,
-    },
-    brandMark: {
-      alignItems: 'center',
-      backgroundColor: theme.card,
-      borderColor: theme.border,
-      borderRadius: 16,
-      borderWidth: 1,
-      height: 54,
-      justifyContent: 'center',
-      width: 54,
-    },
-    brandMarkText: {
-      color: theme.accent,
-      fontSize: 17,
+    brandLogo: {
+      color: C.primary,
+      fontSize: isWide ? 84 : 44,
       fontWeight: '900',
-      letterSpacing: 1,
+      letterSpacing: -2,
+      marginBottom: 12,
     },
-    brandName: {
-      color: theme.ink,
-      fontSize: 18,
-      fontWeight: '900',
-      letterSpacing: 1.2,
-    },
-    brandMeta: {
-      color: theme.muted,
-      fontSize: 14,
-      fontWeight: '700',
-      marginTop: 3,
-    },
-    themeToggle: {
-      alignItems: 'center',
-      backgroundColor: theme.card,
-      borderColor: theme.border,
-      borderRadius: 999,
-      borderWidth: 1,
-      flexDirection: 'row',
-      gap: 8,
-      minHeight: 48,
-      paddingHorizontal: 18,
-    },
-    themeToggleActive: {
-      backgroundColor: theme.cardElevated,
-      borderColor: theme.accent,
-    },
-    themeIcon: {
-      color: theme.accent,
-      fontSize: 17,
-      fontWeight: '900',
-    },
-    themeText: {
-      color: theme.mutedStrong,
-      fontSize: 15,
+    heroTitle: {
+      color: C.onSurface,
+      fontSize: isWide ? 50 : 28,
       fontWeight: '800',
-    },
-    content: {
-      alignItems: 'center',
-      flex: 1,
-      justifyContent: 'center',
-      paddingBottom: 28,
+      lineHeight: isWide ? 58 : 34,
+      marginBottom: 20,
     },
     statusPill: {
+      flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: theme.accentSoft,
-      borderColor: theme.accent,
-      borderRadius: 999,
+      gap: 8,
+      alignSelf: 'flex-start',
+      backgroundColor: 'rgba(26,28,28,0.4)',
       borderWidth: 1,
-      flexDirection: 'row',
-      gap: 10,
-      paddingHorizontal: 18,
-      paddingVertical: 10,
-    },
-    statusPulse: {
-      backgroundColor: theme.success,
+      borderColor: C.white10,
       borderRadius: 999,
-      height: 10,
-      width: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      ...(Platform.OS === 'web' ? {
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+      } as any : {}),
     },
-    statusText: {
-      color: theme.mutedStrong,
-      fontSize: 14,
-      fontWeight: '900',
-    },
-    title: {
-      color: theme.ink,
-      fontSize: 42,
-      fontWeight: '900',
-      letterSpacing: -0.8,
-      marginTop: 26,
-      textAlign: 'center',
-    },
-    subtitle: {
-      color: theme.muted,
-      fontSize: 18,
-      fontWeight: '700',
-      lineHeight: 28,
-      marginTop: 14,
-      maxWidth: 760,
-      textAlign: 'center',
-    },
-    inputPad: {
-      backgroundColor: theme.card,
-      borderColor: theme.border,
-      borderRadius: 24,
-      borderWidth: 2,
-      marginTop: 42,
-      minWidth: 480,
-      paddingHorizontal: 28,
-      paddingTop: 18,
-      paddingBottom: 20,
-    },
-    inputPadFocused: {
-      borderColor: theme.accent,
-    },
-    inputPadReady: {
-      borderColor: theme.success,
-    },
-    inputPadPressed: {
-      transform: [{ scale: 0.992 }],
-    },
-    inputTopLine: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 4,
-    },
-    inputLabel: {
-      color: theme.muted,
-      fontSize: 14,
-      fontWeight: '900',
-      letterSpacing: 0.8,
-      textTransform: 'uppercase',
-    },
-    counter: {
-      color: theme.muted,
-      fontSize: 15,
-      fontWeight: '900',
-    },
-    counterReady: {
-      color: theme.success,
-    },
-    input: {
-      color: theme.ink,
-      fontSize: 58,
-      fontWeight: '900',
-      letterSpacing: 17,
-      lineHeight: 72,
-      padding: 0,
-      textAlign: 'center',
-    },
-    progressTrack: {
-      backgroundColor: theme.bgAlt,
-      borderRadius: 999,
+    statusDot: {
+      width: 8,
       height: 8,
-      marginTop: 10,
+      borderRadius: 4,
+      backgroundColor: C.primary,
+    },
+    statusLabel: {
+      color: C.primary,
+      fontSize: 14,
+      fontWeight: '600',
+      letterSpacing: 0.7,
+    },
+    creditsText: {
+      color: 'rgba(190, 199, 212, 0.85)',
+      fontSize: isWide ? 14 : 12,
+      fontWeight: '800',
+      letterSpacing: 1.5,
+      zIndex: 1,
+    },
+
+    /* ── Right Panel ── */
+    rightPanel: {
+      flex: isWide ? 0.5 : 1,
+      backgroundColor: C.bg,
+      borderLeftWidth: isWide ? 1 : 0,
+      borderTopWidth: isWide ? 0 : 1,
+      borderColor: C.white10,
+      position: 'relative',
       overflow: 'hidden',
     },
-    progressFill: {
-      backgroundColor: theme.success,
-      borderRadius: 999,
-      height: 8,
+    clockContainer: {
+      position: 'absolute',
+      top: isWide ? 64 : 16,
+      right: isWide ? 64 : 16,
+      zIndex: 10,
     },
-    helperText: {
-      color: theme.muted,
-      fontSize: 16,
-      fontWeight: '800',
-      marginTop: 18,
-      textAlign: 'center',
-    },
-    helperTextReady: {
-      color: theme.success,
-    },
-    footer: {
+    rightCenter: {
+      flex: 1,
       alignItems: 'center',
-      borderColor: theme.border,
-      borderTopWidth: 1,
-      paddingTop: 20,
+      justifyContent: 'center',
+      paddingHorizontal: isWide ? 48 : 20,
+      paddingTop: isWide ? 80 : 60,
+      paddingBottom: 24,
     },
-    footerText: {
-      color: theme.muted,
-      fontSize: 14,
-      fontWeight: '700',
+    centerBox: {
+      width: '100%',
+      maxWidth: 480,
+      alignItems: 'center',
+    },
+
+    /* ── PIN Workspace ── */
+    instruction: {
+      color: C.onSurfaceVariant,
+      fontSize: isWide ? 18 : 15,
+      fontWeight: '400',
+      lineHeight: isWide ? 28 : 22,
       textAlign: 'center',
+      marginBottom: 28,
+    },
+    pinRow: {
+      flexDirection: 'row',
+      justifyContent: 'center',
+      gap: isWide ? 16 : 12,
+      marginBottom: 32,
+    },
+    pinSlot: {
+      width: isWide ? 48 : 40,
+      height: isWide ? 48 : 40,
+      borderRadius: 999,
+      backgroundColor: C.slotBg,
+      borderWidth: 1.5,
+      borderColor: C.slotBorder,
+    },
+    pinSlotActive: {
+      borderColor: C.slotActiveBorder,
+      shadowColor: C.slotActiveBorder,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.4,
+      shadowRadius: 12,
+      elevation: 6,
+    },
+    pinSlotFilled: {
+      backgroundColor: C.slotFilledBg,
+      borderColor: C.slotFilledBg,
+      shadowColor: C.slotFilledBg,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.6,
+      shadowRadius: 16,
+      elevation: 8,
+    },
+    verifyingText: {
+      color: C.primary,
+      fontSize: 14,
+      fontWeight: '600',
+      marginBottom: 24,
+    },
+    hiddenInput: {
+      position: 'absolute',
+      opacity: 0,
+      width: 1,
+      height: 1,
+    },
+
+    /* ── Keypad ── */
+    keypad: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: isWide ? 24 : 16,
+      width: '100%',
+      maxWidth: 360,
+    },
+    key: {
+      width: isWide ? 100 : 88,
+      height: isWide ? 80 : 64,
+      borderRadius: 16,
+      backgroundColor: C.keyBg,
+      borderWidth: 1,
+      borderColor: C.white10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...(Platform.OS === 'web' ? {
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+      } as any : {}),
+    },
+    keyPressed: {
+      backgroundColor: C.keyPressBg,
+      borderColor: C.primary,
+      transform: [{ scale: 0.95 }],
+    },
+    keyText: {
+      color: C.onSurface,
+      fontSize: isWide ? 32 : 24,
+      fontWeight: '700',
+    },
+    keyActionText: {
+      fontSize: isWide ? 14 : 12,
+      fontWeight: '600',
+      color: C.onSurfaceVariant,
+      letterSpacing: 0.7,
+    },
+
+    /* ── Success ── */
+    successIcon: {
+      fontSize: 56,
+      color: C.primary,
+      marginBottom: 16,
+    },
+    successTitle: {
+      color: C.onSurface,
+      fontSize: 28,
+      fontWeight: '800',
+      marginBottom: 8,
+    },
+    successSub: {
+      color: C.onSurfaceVariant,
+      fontSize: 16,
+      lineHeight: 24,
+      textAlign: 'center',
+      marginBottom: 32,
+    },
+    goBtn: {
+      width: '100%',
+      maxWidth: 360,
+      height: 56,
+      borderRadius: 16,
+      backgroundColor: C.primaryDeep,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 16,
+    },
+    goBtnPressed: {
+      opacity: 0.85,
+      transform: [{ scale: 0.98 }],
+    },
+    goBtnText: {
+      color: '#FFF',
+      fontSize: 17,
+      fontWeight: '700',
+    },
+    resetText: {
+      color: C.onSurfaceVariant,
+      fontSize: 14,
+      fontWeight: '600',
+      textDecorationLine: 'underline',
+      padding: 8,
+    },
+
+    /* ── Mobile Credits ── */
+    mobileCredits: {
+      color: 'rgba(190,199,212,0.4)',
+      fontSize: 10,
+      fontWeight: '500',
+      letterSpacing: 1.5,
+      textAlign: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 16,
     },
   });
 }

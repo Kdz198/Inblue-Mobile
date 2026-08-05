@@ -1,4 +1,7 @@
 {
-  "name": "InblueMB",
-  "displayName": "InblueMB"
+  "expo": {
+    "name": "InblueMB",
+    "slug": "inbluemb",
+    "version": "1.0.0"
+  }
 }
