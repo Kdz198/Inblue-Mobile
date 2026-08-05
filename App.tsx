@@ -367,13 +367,11 @@ function App() {
                   <View style={styles.pinRow}>
                     {Array.from({ length: PIN_LENGTH }).map((_, idx) => {
                       const filled = idx < pin.length;
-                      const active = idx === pin.length;
                       return (
                         <View
                           key={idx}
                           style={[
                             styles.pinSlot,
-                            active && styles.pinSlotActive,
                             filled && styles.pinSlotFilled,
                             !!authError && styles.pinSlotError,
                           ]}
