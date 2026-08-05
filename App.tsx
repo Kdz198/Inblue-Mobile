@@ -10,7 +10,6 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -211,13 +210,12 @@ function App() {
   const isWide = width >= 768;
 
   const [pin, setPin] = useState('');
-  const [isFocused, setIsFocused] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
 
-  const inputRef = useRef<TextInput>(null);
   const isReady = pin.length === PIN_LENGTH;
 
+  // Auto-submit when 6 digits entered
   useEffect(() => {
     if (isReady && !isVerifying && !isVerified) {
       setIsVerifying(true);
@@ -227,6 +225,23 @@ function App() {
     }
   }, [isReady, isVerifying, isVerified]);
 
+  // Physical keyboard listener on Web PC preview
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const handleKeyDown = (e: any) => {
+      if (isVerified || isVerifying) return;
+      if (e.key >= '0' && e.key <= '9') {
+        setPin(p => (p.length < PIN_LENGTH ? p + e.key : p));
+      } else if (e.key === 'Backspace') {
+        setPin(p => p.slice(0, -1));
+      } else if (e.key === 'Escape') {
+        setPin('');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isVerified, isVerifying]);
+
   const pressKey = (val: string) => {
     if (isVerified || isVerifying) return;
     if (val === 'AC') { setPin(''); return; }
@@ -234,14 +249,8 @@ function App() {
     if (pin.length < PIN_LENGTH) setPin(p => p + val);
   };
 
-  const handleTextChange = (text: string) => {
-    if (isVerified || isVerifying) return;
-    setPin(text.replace(/[^0-9]/g, '').slice(0, PIN_LENGTH));
-  };
-
   const handleReset = () => {
     setPin(''); setIsVerified(false); setIsVerifying(false);
-    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const styles = useMemo(() => createStyles(isWide), [isWide]);
@@ -279,7 +288,7 @@ function App() {
               {/* Clean Minimalist Credits Line */}
               {isWide && (
                 <Text style={styles.creditsText}>
-                  FPT UNIVERSITY • SOFTWARE ENGINEERING • GVHD: LÂM HỮU KHÁNH PHƯƠNG
+                  CAPSTONE PROJECT • FPT UNIVERSITY HCM • SOFTWARE ENGINEERING • GVHD: LÂM HỮU KHÁNH PHƯƠNG
                 </Text>
               )}
             </View>
@@ -330,11 +339,11 @@ function App() {
                       Nhập mã PIN 6 số từ lịch hẹn của bạn để bắt đầu.
                     </Text>
 
-                    {/* 6 Circular PIN Slots */}
-                    <Pressable onPress={() => inputRef.current?.focus()} style={styles.pinRow}>
+                    {/* 6 Circular PIN Slots (Touch OS Keyboard Disabled) */}
+                    <View style={styles.pinRow}>
                       {Array.from({ length: PIN_LENGTH }).map((_, idx) => {
                         const filled = idx < pin.length;
-                        const active = idx === pin.length && isFocused;
+                        const active = idx === pin.length;
                         return (
                           <View
                             key={idx}
@@ -346,26 +355,14 @@ function App() {
                           />
                         );
                       })}
-                    </Pressable>
+                    </View>
 
                     {/* Verifying Spinner / Label */}
                     {isVerifying && (
                       <Text style={styles.verifyingText}>Đang xác minh...</Text>
                     )}
 
-                    {/* Hidden TextInput */}
-                    <TextInput
-                      ref={inputRef}
-                      accessibilityLabel="Nhập mã PIN"
-                      autoCapitalize="none" autoCorrect={false} autoFocus
-                      keyboardType="number-pad" maxLength={PIN_LENGTH}
-                      onBlur={() => setIsFocused(false)}
-                      onFocus={() => setIsFocused(true)}
-                      onChangeText={handleTextChange}
-                      style={styles.hiddenInput} value={pin}
-                    />
-
-                    {/* Glass Keypad */}
+                    {/* On-Screen Glass Touch Numpad Keypad */}
                     <View style={styles.keypad}>
                       {['1','2','3','4','5','6','7','8','9','AC','0','DEL'].map(k => {
                         const isAction = k === 'AC' || k === 'DEL';
@@ -605,12 +602,6 @@ function createStyles(isWide: boolean) {
       fontSize: 14,
       fontWeight: '600',
       marginBottom: 24,
-    },
-    hiddenInput: {
-      position: 'absolute',
-      opacity: 0,
-      width: 1,
-      height: 1,
     },
 
     /* ── Keypad ── */
