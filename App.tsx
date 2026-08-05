@@ -220,56 +220,45 @@ function App() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const lastAttemptedPinRef = useRef('');
-  const isReady = pin.length === PIN_LENGTH;
+  // Imperative PIN submit handler directly called upon 6-digit entry
+  const handlePinSubmit = useCallback(async (targetPin: string) => {
+    setIsVerifying(true);
+    setAuthError(null);
+    Keyboard.dismiss();
 
-  // Auto-submit PIN to POST https://api.kdz.asia/api/kiosk/enter/{sessionKey} when 6 digits entered
-  useEffect(() => {
-    if (!isReady || isVerifying || screenState !== 'PIN_ENTRY') return;
-    if (lastAttemptedPinRef.current === pin) return;
-
-    let isMounted = true;
-    lastAttemptedPinRef.current = pin;
-
-    async function verifyKioskPin() {
-      setIsVerifying(true);
-      setAuthError(null);
-      Keyboard.dismiss();
-
-      try {
-        const res = await enterKioskApi(pin);
-        if (isMounted) {
-          setAiSessionKey(res.aiSessionKey || pin);
-          setIsVerifying(false);
-          setScreenState('HARDWARE_CHECK');
-        }
-      } catch (err: any) {
-        console.warn('Kiosk Auth Failed:', err);
-        if (isMounted) {
-          setIsVerifying(false);
-          let rawErr = err.message || '';
-          if (rawErr.toLowerCase().includes('booking not found')) {
-            rawErr = 'Không tìm thấy lịch hẹn phỏng vấn cho mã PIN này. Vui lòng kiểm tra lại!';
-          }
-          setAuthError(rawErr);
-          // Reset pin state cleanly so candidate can enter a new 6-digit PIN
-          setPin('');
-        }
+    try {
+      const res = await enterKioskApi(targetPin);
+      setAiSessionKey(res.aiSessionKey || targetPin);
+      setIsVerifying(false);
+      setScreenState('HARDWARE_CHECK');
+    } catch (err: any) {
+      console.warn('Kiosk Auth Failed:', err);
+      setIsVerifying(false);
+      let rawErr = err.message || 'Xác thực không thành công. Vui lòng thử lại!';
+      if (rawErr.toLowerCase().includes('booking not found')) {
+        rawErr = 'Không tìm thấy lịch hẹn phỏng vấn cho mã PIN này. Vui lòng kiểm tra lại!';
       }
+      setAuthError(rawErr);
+      setPin('');
     }
-
-    verifyKioskPin();
-    return () => { isMounted = false; };
-  }, [isReady, isVerifying, pin, screenState]);
+  }, []);
 
   const pressKey = useCallback((val: string) => {
     if (isVerifying || screenState !== 'PIN_ENTRY') return;
     setAuthError(null);
-    lastAttemptedPinRef.current = '';
+
+    let nextPin = pin;
     if (val === 'AC') { setPin(''); return; }
     if (val === 'DEL') { setPin(p => p.slice(0, -1)); return; }
-    setPin(p => (p.length < PIN_LENGTH ? p + val : p));
-  }, [isVerifying, screenState]);
+    
+    if (pin.length < PIN_LENGTH) {
+      nextPin = pin + val;
+      setPin(nextPin);
+      if (nextPin.length === PIN_LENGTH) {
+        handlePinSubmit(nextPin);
+      }
+    }
+  }, [isVerifying, screenState, pin, handlePinSubmit]);
 
   const handleHardwareConfirmed = () => {
     setScreenState('AI_ROOM');
@@ -278,7 +267,6 @@ function App() {
   const handleHardwareCancelled = () => {
     setPin('');
     setAuthError(null);
-    lastAttemptedPinRef.current = '';
     setScreenState('PIN_ENTRY');
   };
 
@@ -286,7 +274,6 @@ function App() {
     setPin('');
     setAiSessionKey('');
     setAuthError(null);
-    lastAttemptedPinRef.current = '';
     setScreenState('PIN_ENTRY');
   };
 

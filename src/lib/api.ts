@@ -39,29 +39,42 @@ export interface ChatMessage {
 
 // Fetch helper for Kiosk API endpoints
 export async function enterKioskApi(sessionKey: string): Promise<KioskEnterDtoResponse> {
-  const response = await fetch(`${BASE_URL}/api/kiosk/enter/${encodeURIComponent(sessionKey)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-  if (!response.ok) {
-    let errorMsg = 'Mã PIN không đúng hoặc chưa tới giờ phỏng vấn (±15 phút). Vui lòng thử lại!';
-    try {
-      const errJson = await response.json();
-      if (errJson.error) {
-        errorMsg = errJson.error;
-      } else if (errJson.message) {
-        errorMsg = errJson.message;
+  try {
+    const response = await fetch(`${BASE_URL}/api/kiosk/enter/${encodeURIComponent(sessionKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      let errorMsg = 'Mã PIN không đúng hoặc chưa tới giờ phỏng vấn (±15 phút). Vui lòng thử lại!';
+      try {
+        const errJson = await response.json();
+        if (errJson.error) {
+          errorMsg = errJson.error;
+        } else if (errJson.message) {
+          errorMsg = errJson.message;
+        }
+      } catch (e) {
+        /* fallback */
       }
-    } catch (e) {
-      /* fallback */
+      throw new Error(errorMsg);
     }
-    throw new Error(errorMsg);
-  }
 
-  return response.json();
+    return await response.json();
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Kết nối máy chủ quá thời gian (Timeout 8s). Vui lòng thử lại!');
+    }
+    throw err;
+  }
 }
 
 export async function startInterviewApi(sessionKey: string): Promise<InterviewStartResponse> {
