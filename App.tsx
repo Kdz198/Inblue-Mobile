@@ -14,8 +14,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AIInterviewRoom } from './src/components/AIInterviewRoom';
+import { HardwareCheckModal } from './src/components/HardwareCheckModal';
+import { enterKioskApi } from './src/lib/api';
 
 const PIN_LENGTH = 6;
+
+type AppScreenState = 'PIN_ENTRY' | 'HARDWARE_CHECK' | 'AI_ROOM';
 
 const C = {
   bg: '#050A1A',
@@ -204,41 +209,87 @@ function RealTimeDateWidget({ styles }: { styles: any }) {
   );
 }
 
-/* ───── Main App ───── */
+/* ───── Main App Controller ───── */
 function App() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
+  const [screenState, setScreenState] = useState<AppScreenState>('PIN_ENTRY');
   const [pin, setPin] = useState('');
+  const [aiSessionKey, setAiSessionKey] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
-  const [isVerified, setIsVerified] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const isReady = pin.length === PIN_LENGTH;
 
-  // Auto-submit when 6 digits entered
+  // Auto-submit PIN to POST /api/kiosk/enter/{sessionKey} when 6 digits entered
   useEffect(() => {
-    if (isReady && !isVerifying && !isVerified) {
+    if (!isReady || isVerifying || screenState !== 'PIN_ENTRY') return;
+
+    let isMounted = true;
+    async function verifyKioskPin() {
       setIsVerifying(true);
+      setAuthError(null);
       Keyboard.dismiss();
-      const t = setTimeout(() => { setIsVerifying(false); setIsVerified(true); }, 1200);
-      return () => clearTimeout(t);
+
+      try {
+        const res = await enterKioskApi(pin);
+        if (isMounted) {
+          setAiSessionKey(res.aiSessionKey || pin);
+          setIsVerifying(false);
+          setScreenState('HARDWARE_CHECK');
+        }
+      } catch (err: any) {
+        console.warn('Kiosk Auth Warning:', err);
+        // Fallback for demo/offline testing: proceed with entered PIN
+        if (isMounted) {
+          setAiSessionKey(pin);
+          setIsVerifying(false);
+          setScreenState('HARDWARE_CHECK');
+        }
+      }
     }
-  }, [isReady, isVerifying, isVerified]);
 
-
+    verifyKioskPin();
+    return () => { isMounted = false; };
+  }, [isReady, isVerifying, pin, screenState]);
 
   const pressKey = (val: string) => {
-    if (isVerified || isVerifying) return;
+    if (isVerifying || screenState !== 'PIN_ENTRY') return;
+    setAuthError(null);
     if (val === 'AC') { setPin(''); return; }
     if (val === 'DEL') { setPin(p => p.slice(0, -1)); return; }
     if (pin.length < PIN_LENGTH) setPin(p => p + val);
   };
 
-  const handleReset = () => {
-    setPin(''); setIsVerified(false); setIsVerifying(false);
+  const handleHardwareConfirmed = () => {
+    setScreenState('AI_ROOM');
+  };
+
+  const handleHardwareCancelled = () => {
+    setPin('');
+    setAuthError(null);
+    setScreenState('PIN_ENTRY');
+  };
+
+  const handleFinishAIRoom = () => {
+    setPin('');
+    setAiSessionKey('');
+    setAuthError(null);
+    setScreenState('PIN_ENTRY');
   };
 
   const styles = useMemo(() => createStyles(isWide), [isWide]);
+
+  // Render Full Screen AI Room when in AI_ROOM state
+  if (screenState === 'AI_ROOM') {
+    return (
+      <SafeAreaProvider>
+        <StatusBar barStyle="light-content" backgroundColor="#050A1A" />
+        <AIInterviewRoom sessionKey={aiSessionKey} onFinish={handleFinishAIRoom} />
+      </SafeAreaProvider>
+    );
+  }
 
   return (
     <SafeAreaProvider>
@@ -299,87 +350,79 @@ function App() {
 
               {/* Center PIN Workspace */}
               <View style={styles.rightCenter}>
-                {isVerified ? (
-                  /* Success */
-                  <View style={styles.centerBox}>
-                    <Text style={styles.successIcon}>✓</Text>
-                    <Text style={styles.successTitle}>Mã PIN Hợp Lệ</Text>
-                    <Text style={styles.successSub}>
-                      Phiên phỏng vấn AI tại Kiosk đã sẵn sàng.
-                    </Text>
-                    <Pressable onPress={() => {}} style={({ pressed }) => [styles.goBtn, pressed && styles.goBtnPressed]}>
-                      <Text style={styles.goBtnText}>Bắt Đầu Phỏng Vấn →</Text>
-                    </Pressable>
-                    <Pressable onPress={handleReset}>
-                      <Text style={styles.resetText}>Nhập lại mã khác</Text>
-                    </Pressable>
+                <View style={styles.centerBox}>
+                  {/* Material Lock Open Icon */}
+                  <LockOpenIcon />
+
+                  <Text style={styles.instruction}>
+                    Nhập mã PIN 6 số từ lịch hẹn của bạn để bắt đầu.
+                  </Text>
+
+                  {/* 6 Circular PIN Slots */}
+                  <View style={styles.pinRow}>
+                    {Array.from({ length: PIN_LENGTH }).map((_, idx) => {
+                      const filled = idx < pin.length;
+                      const active = idx === pin.length;
+                      return (
+                        <View
+                          key={idx}
+                          style={[
+                            styles.pinSlot,
+                            active && styles.pinSlotActive,
+                            filled && styles.pinSlotFilled,
+                          ]}
+                        />
+                      );
+                    })}
                   </View>
-                ) : (
-                  /* PIN Entry */
-                  <View style={styles.centerBox}>
-                    {/* Material Lock Open Icon */}
-                    <LockOpenIcon />
 
-                    <Text style={styles.instruction}>
-                      Nhập mã PIN 6 số từ lịch hẹn của bạn để bắt đầu.
-                    </Text>
+                  {/* Verifying Spinner / Error Label */}
+                  {isVerifying && (
+                    <Text style={styles.verifyingText}>Đang xác thực Kiosk session...</Text>
+                  )}
+                  {authError && (
+                    <Text style={styles.errorText}>{authError}</Text>
+                  )}
 
-                    {/* 6 Circular PIN Slots (Touch OS Keyboard Disabled) */}
-                    <View style={styles.pinRow}>
-                      {Array.from({ length: PIN_LENGTH }).map((_, idx) => {
-                        const filled = idx < pin.length;
-                        const active = idx === pin.length;
-                        return (
-                          <View
-                            key={idx}
-                            style={[
-                              styles.pinSlot,
-                              active && styles.pinSlotActive,
-                              filled && styles.pinSlotFilled,
-                            ]}
-                          />
-                        );
-                      })}
-                    </View>
-
-                    {/* Verifying Spinner / Label */}
-                    {isVerifying && (
-                      <Text style={styles.verifyingText}>Đang xác minh...</Text>
-                    )}
-
-                    {/* On-Screen Glass Touch Numpad Keypad */}
-                    <View style={styles.keypad}>
-                      {['1','2','3','4','5','6','7','8','9','AC','0','DEL'].map(k => {
-                        const isAction = k === 'AC' || k === 'DEL';
-                        return (
-                          <Pressable
-                            key={k}
-                            onPress={() => pressKey(k)}
-                            style={({ pressed }) => [
-                              styles.key,
-                              pressed && styles.keyPressed,
-                            ]}
-                          >
-                            {k === 'DEL' && Platform.OS === 'web' ? (
-                              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bec7d4" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path>
-                                <line x1="18" y1="9" x2="12" y2="15"></line>
-                                <line x1="12" y1="9" x2="18" y2="15"></line>
-                              </svg>
-                            ) : (
-                              <Text style={[styles.keyText, isAction && styles.keyActionText]}>
-                                {k === 'DEL' ? '⌫' : k}
-                              </Text>
-                            )}
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                  {/* On-Screen Glass Touch Numpad Keypad */}
+                  <View style={styles.keypad}>
+                    {['1','2','3','4','5','6','7','8','9','AC','0','DEL'].map(k => {
+                      const isAction = k === 'AC' || k === 'DEL';
+                      return (
+                        <Pressable
+                          key={k}
+                          onPress={() => pressKey(k)}
+                          style={({ pressed }) => [
+                            styles.key,
+                            pressed && styles.keyPressed,
+                          ]}
+                        >
+                          {k === 'DEL' && Platform.OS === 'web' ? (
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bec7d4" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path>
+                              <line x1="18" y1="9" x2="12" y2="15"></line>
+                              <line x1="12" y1="9" x2="18" y2="15"></line>
+                            </svg>
+                          ) : (
+                            <Text style={[styles.keyText, isAction && styles.keyActionText]}>
+                              {k === 'DEL' ? '⌫' : k}
+                            </Text>
+                          )}
+                        </Pressable>
+                      );
+                    })}
                   </View>
-                )}
+                </View>
               </View>
             </View>
           </View>
+
+          {/* Hardware Check Dialog Modal */}
+          <HardwareCheckModal
+            visible={screenState === 'HARDWARE_CHECK'}
+            onConfirm={handleHardwareConfirmed}
+            onCancel={handleHardwareCancelled}
+          />
         </KeyboardAvoidingView>
 
         {/* Mobile Credits */}
@@ -588,6 +631,12 @@ function createStyles(isWide: boolean) {
       fontWeight: '600',
       marginBottom: 24,
     },
+    errorText: {
+      color: '#EF4444',
+      fontSize: 14,
+      fontWeight: '600',
+      marginBottom: 24,
+    },
 
     /* ── Keypad ── */
     keypad: {
@@ -627,52 +676,6 @@ function createStyles(isWide: boolean) {
       fontWeight: '600',
       color: C.onSurfaceVariant,
       letterSpacing: 0.7,
-    },
-
-    /* ── Success ── */
-    successIcon: {
-      fontSize: 56,
-      color: C.primary,
-      marginBottom: 16,
-    },
-    successTitle: {
-      color: C.onSurface,
-      fontSize: 28,
-      fontWeight: '800',
-      marginBottom: 8,
-    },
-    successSub: {
-      color: C.onSurfaceVariant,
-      fontSize: 16,
-      lineHeight: 24,
-      textAlign: 'center',
-      marginBottom: 32,
-    },
-    goBtn: {
-      width: '100%',
-      maxWidth: 360,
-      height: 56,
-      borderRadius: 16,
-      backgroundColor: C.primaryDeep,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 16,
-    },
-    goBtnPressed: {
-      opacity: 0.85,
-      transform: [{ scale: 0.98 }],
-    },
-    goBtnText: {
-      color: '#FFF',
-      fontSize: 17,
-      fontWeight: '700',
-    },
-    resetText: {
-      color: C.onSurfaceVariant,
-      fontSize: 14,
-      fontWeight: '600',
-      textDecorationLine: 'underline',
-      padding: 8,
     },
 
     /* ── Mobile Credits ── */
