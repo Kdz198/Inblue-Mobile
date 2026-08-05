@@ -25,10 +25,10 @@ interface AIInterviewRoomProps {
 
 export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) {
   const { width } = useWindowDimensions();
-  const isWide = width >= 768;
+  const isWide = width >= 1024;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [currentPhase, setCurrentPhase] = useState('Vòng 7: Phỏng Vấn AI');
+  const [currentPhase, setCurrentPhase] = useState('Giới thiệu & Khởi động');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(1);
   const [totalQuestions, setTotalQuestions] = useState(5);
 
@@ -38,13 +38,17 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(true);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scrollViewRef = useRef<ScrollView | null>(null);
 
-  // Pulse animation for AI Avatar Orb
+  // Pulse animation for central AI Avatar Orb
   const orbScale = useRef(new Animated.Value(1)).current;
   const orbGlow = useRef(new Animated.Value(0.4)).current;
+  const waveScale = useRef(new Animated.Value(1)).current;
+  const waveAlpha = useRef(new Animated.Value(0.6)).current;
 
   // Real-time clock
   const [clockStr, setClockStr] = useState('');
@@ -54,7 +58,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
       const now = new Date();
       const h = String(now.getHours()).padStart(2, '0');
       const m = String(now.getMinutes()).padStart(2, '0');
-      setClockStr(`${h}:${m}`);
+      const s = String(now.getSeconds()).padStart(2, '0');
+      setClockStr(`${h}:${m}:${s}`);
     }
     updateClock();
     const interval = setInterval(updateClock, 1000);
@@ -63,23 +68,27 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
   // AI Orb Pulsing Animation Loop
   useEffect(() => {
-    const anim = Animated.loop(
+    const orbAnim = Animated.loop(
       Animated.sequence([
         Animated.parallel([
-          Animated.timing(orbScale, { toValue: 1.15, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(orbGlow, { toValue: 0.8, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(orbScale, { toValue: 1.12, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(orbGlow, { toValue: 0.85, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(waveScale, { toValue: 1.45, duration: 1800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          Animated.timing(waveAlpha, { toValue: 0.1, duration: 1800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
         ]),
         Animated.parallel([
-          Animated.timing(orbScale, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(orbGlow, { toValue: 0.4, duration: 1500, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(orbScale, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(orbGlow, { toValue: 0.4, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(waveScale, { toValue: 1, duration: 1800, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+          Animated.timing(waveAlpha, { toValue: 0.6, duration: 1800, easing: Easing.in(Easing.quad), useNativeDriver: true }),
         ]),
       ])
     );
-    anim.start();
-    return () => anim.stop();
-  }, [orbScale, orbGlow]);
+    orbAnim.start();
+    return () => orbAnim.stop();
+  }, [orbScale, orbGlow, waveScale, waveAlpha]);
 
-  // Candidate Live Camera Stream in PIP corner
+  // Candidate Live Camera Stream
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     let stream: MediaStream | null = null;
@@ -90,7 +99,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
           videoRef.current.srcObject = stream;
         }
       } catch (err) {
-        console.warn('PIP Camera permission info:', err);
+        console.warn('Camera stream warning:', err);
       }
     }
     startCam();
@@ -107,9 +116,13 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'vi-VN';
         utterance.rate = 1.0;
+        utterance.onstart = () => setIsAiSpeaking(true);
+        utterance.onend = () => setIsAiSpeaking(false);
+        utterance.onerror = () => setIsAiSpeaking(false);
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.warn(e);
+        setIsAiSpeaking(false);
       }
     }
   }, []);
@@ -154,11 +167,10 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
         }
       } catch (err) {
         console.warn('Start interview fallback mock:', err);
-        // Fallback mock question if backend API is not live
         if (mounted) {
           handleApiResponse({
-            questionContent: 'Chào bạn! Hãy giới thiệu bản thân và nêu ngắn gọn dự án nổi bật nhất mà bạn từng thực hiện trong chuyên ngành Software Engineering.',
-            phaseName: 'Vòng 7: Phỏng Vấn AI',
+            questionContent: 'Chào bạn! Mình đã xem qua thông tin của bạn với rất nhiều điểm ấn tượng. Bạn hãy giới thiệu ngắn gọn về bản thân và định hướng phát triển của mình nhé?',
+            phaseName: 'Giới thiệu & Khởi động',
             currentQuestionIndex: 1,
             totalQuestionsInPhase: 5,
           });
@@ -173,6 +185,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
   // Speech-To-Text (STT) Recording Toggle
   const toggleRecording = () => {
+    if (isSubmitting || isFinished || isEvaluating) return;
+
     if (Platform.OS === 'web' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!isRecording) {
@@ -185,26 +199,34 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
             for (let i = event.resultIndex; i < event.results.length; i++) {
               transcript += event.results[i][0].transcript;
             }
-            setAnswerInput(prev => (prev.trim() ? prev + ' ' + transcript : transcript));
+            setAnswerInput(prev => (prev.trim() ? prev.trim() + ' ' + transcript : transcript));
           };
           recognition.onend = () => setIsRecording(false);
           recognition.start();
           setIsRecording(true);
         } catch (e) {
           console.warn(e);
+          setIsRecording(!isRecording);
         }
       } else {
         setIsRecording(false);
+        if (answerInput.trim()) {
+          handleSubmitAnswer();
+        }
       }
     } else {
-      setIsRecording(!isRecording);
+      if (isRecording && answerInput.trim()) {
+        handleSubmitAnswer();
+      } else {
+        setIsRecording(!isRecording);
+      }
     }
   };
 
   // Submit Answer Action
   const handleSubmitAnswer = async () => {
-    const textToSend = answerInput.trim();
-    if (!textToSend || isSubmitting) return;
+    const textToSend = answerInput.trim() || 'Tôi đã hoàn thành câu trả lời.';
+    if (isSubmitting) return;
 
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsg: ChatMessage = {
@@ -216,6 +238,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
     setMessages(prev => [...prev, userMsg]);
     setAnswerInput('');
+    setIsRecording(false);
     setIsSubmitting(true);
 
     try {
@@ -223,7 +246,6 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
       handleApiResponse(data);
     } catch (err) {
       console.warn('Submit answer fallback mock:', err);
-      // Fallback mock response if backend is offline
       if (currentQuestionIndex >= totalQuestions) {
         setIsEvaluating(true);
         setTimeout(() => {
@@ -234,7 +256,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
         const nextIdx = currentQuestionIndex + 1;
         setCurrentQuestionIndex(nextIdx);
         handleApiResponse({
-          questionContent: `Câu hỏi ${nextIdx}: Bạn đã giải quyết thử thách kỹ thuật khó khăn nhất trong dự án đó như thế nào?`,
+          questionContent: `Câu hỏi ${nextIdx}: Bạn hãy chia sẻ về một bài học hoặc thử thách lớn nhất mà bạn từng vượt qua trong dự án thực tế?`,
           phaseName: currentPhase,
           currentQuestionIndex: nextIdx,
           totalQuestionsInPhase: totalQuestions,
@@ -245,173 +267,293 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     }
   };
 
+  // Latest AI Question for display on main stage
+  const latestAiQuestion = messages.filter(m => m.role === 'ai').pop()?.content || 'Đang kết nối với Trợ lý phỏng vấn AI...';
+
   return (
     <View style={styles.container}>
-      {/* ── Header Bar ── */}
-      <View style={styles.header}>
-        {/* Left: Phase Title & Question Badge */}
+      {/* ── Top Header Navigation Bar ── */}
+      <View style={styles.topHeader}>
+        {/* Left: Brand Logo & Breadcrumb */}
         <View style={styles.headerLeft}>
-          <Text style={styles.phaseTitle}>{currentPhase}</Text>
-          <View style={styles.questionBadge}>
-            <Text style={styles.questionBadgeText}>
-              Câu {currentQuestionIndex} / {totalQuestions}
+          <Text style={styles.brandTitle}>INBLUE AI</Text>
+          <Text style={styles.breadcrumbDivider}>/</Text>
+          <Text style={styles.breadcrumbSub}>Phỏng Vấn AI</Text>
+        </View>
+
+        {/* Center: Stage Status Pills */}
+        <View style={styles.headerCenter}>
+          <View style={styles.phasePill}>
+            <Text style={styles.phasePillText}>{currentPhase}</Text>
+          </View>
+
+          <View style={styles.progressPill}>
+            <Text style={styles.progressPillText}>
+              Câu {currentQuestionIndex}/{totalQuestions}
+            </Text>
+          </View>
+
+          <View style={styles.completePill}>
+            <Text style={styles.completePillText}>
+              {Math.round((currentQuestionIndex / Math.max(1, totalQuestions)) * 100)}% hoàn tất
             </Text>
           </View>
         </View>
 
-        {/* Right: Clock */}
-        <View style={styles.clockBadge}>
-          <Text style={{ fontSize: 16, color: '#98CBFF' }}>⏱</Text>
-          <Text style={styles.clockText}>{clockStr}</Text>
+        {/* Right: Live Status Badge & Drawer Toggle */}
+        <View style={styles.headerRight}>
+          <View style={styles.liveBadge}>
+            <View style={styles.liveBadgeDot} />
+            <Text style={styles.liveBadgeText}>Đang phỏng vấn trực tiếp</Text>
+          </View>
+
+          <View style={styles.voiceLangBadge}>
+            <Text style={{ fontSize: 13, color: '#98CBFF' }}>🎙️</Text>
+            <Text style={styles.voiceLangText}>vi-VN</Text>
+          </View>
+
+          <Pressable
+            onPress={() => setIsDrawerOpen(!isDrawerOpen)}
+            style={({ pressed }) => [styles.drawerToggleBtn, pressed && { opacity: 0.8 }]}
+          >
+            <Text style={styles.drawerToggleText}>
+              {isDrawerOpen ? '💬 Ẩn tin nhắn' : '💬 Hiện tin nhắn'}
+            </Text>
+          </Pressable>
         </View>
       </View>
 
-      {/* ── Main Workspace ── */}
-      <View style={styles.workspace}>
-        {/* AI Avatar & Voice Visualizer Panel (Left/Top) */}
-        <View style={[styles.aiPanel, isWide && { width: 340 }]}>
-          <Animated.View
-            style={[
-              styles.aiOrbOuter,
-              {
-                transform: [{ scale: orbScale }],
-                opacity: orbGlow,
-              },
-            ]}
-          />
-          <View style={styles.aiOrbInner}>
-            <Text style={{ fontSize: 44 }}>🤖</Text>
-          </View>
-          <Text style={styles.aiName}>INBLUE AI Interviewer</Text>
-          <View style={styles.aiLiveStatus}>
-            <View style={styles.liveDot} />
-            <Text style={styles.liveText}>Voice Active</Text>
-          </View>
+      {/* ── Main Stage Body ── */}
+      <View style={styles.mainBody}>
+        {/* ── Center Stage Area (Primary Voice Video Experience) ── */}
+        <View style={styles.stageArea}>
+          {/* Background Grid Pattern Overlay */}
+          {Platform.OS === 'web' && (
+            <View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFill, {
+                opacity: 0.25,
+                backgroundImage: 'linear-gradient(rgba(152,203,255,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(152,203,255,0.06) 1px, transparent 1px)',
+                backgroundSize: '48px 48px',
+              } as any]}
+            />
+          )}
 
-          {/* Candidate PIP Camera Box */}
-          <View style={styles.pipCamBox}>
-            {Platform.OS === 'web' ? (
-              <video
-                ref={videoRef as any}
-                autoPlay
-                playsInline
-                muted
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  borderRadius: 14,
-                  transform: 'scaleX(-1)',
-                }}
-              />
-            ) : (
-              <View style={styles.pipCamFallback}>
-                <Text style={{ color: '#98CBFF', fontSize: 12 }}>📹 Camera</Text>
-              </View>
-            )}
-            <Text style={styles.pipLabel}>Thí sinh (Kiosk)</Text>
-          </View>
-        </View>
-
-        {/* Right: Conversation Chat Stream & Controls */}
-        <View style={styles.chatPanel}>
           {isFinished ? (
-            /* Finished Card */
-            <View style={styles.finishCard}>
-              <Text style={{ fontSize: 54, marginBottom: 12 }}>🎉</Text>
-              <Text style={styles.finishTitle}>Hoàn Thành Phỏng Vấn AI</Text>
-              <Text style={styles.finishSub}>
-                Cảm ơn bạn đã hoàn thành bài phỏng vấn tại Kiosk. Hệ thống đang tiến hành chấm điểm và lưu kết quả.
+            /* Finished Stage Card */
+            <View style={styles.centerStageCard}>
+              <Text style={{ fontSize: 64, marginBottom: 16 }}>🏆</Text>
+              <Text style={styles.stageFinishTitle}>Hoàn Thành Phỏng Vấn AI</Text>
+              <Text style={styles.stageFinishSub}>
+                Cảm ơn bạn đã hoàn thành bài phỏng vấn. Kết quả chi tiết đã được tự động lưu vào hệ thống.
               </Text>
               <Pressable
                 onPress={onFinish}
-                style={({ pressed }) => [styles.exitBtn, pressed && { opacity: 0.85 }]}
+                style={({ pressed }) => [styles.stageExitBtn, pressed && { opacity: 0.85 }]}
               >
-                <Text style={styles.exitBtnText}>Trở Về Màn Hình Chính →</Text>
+                <Text style={styles.stageExitBtnText}>Trở Về Trang Chủ Kiosk →</Text>
               </Pressable>
             </View>
           ) : isEvaluating ? (
-            /* Evaluating Indicator */
-            <View style={styles.evalCard}>
-              <Text style={{ fontSize: 44, marginBottom: 16 }}>⏳</Text>
-              <Text style={styles.evalTitle}>Đang Đánh Giá Kết Quả...</Text>
-              <Text style={styles.evalSub}>AI đang tổng hợp câu trả lời của bạn. Vui lòng chờ trong giây lát.</Text>
+            /* Evaluating Stage Card */
+            <View style={styles.centerStageCard}>
+              <Text style={{ fontSize: 52, marginBottom: 16 }}>⏳</Text>
+              <Text style={styles.stageEvalTitle}>Đang Đánh Giá Kết Quả...</Text>
+              <Text style={styles.stageEvalSub}>
+                Trợ lý AI đang tổng hợp và phân tích câu trả lời của bạn. Vui lòng chờ trong giây lát.
+              </Text>
             </View>
           ) : (
-            /* Q&A Chat Stream */
-            <>
-              <ScrollView
-                ref={scrollViewRef}
-                onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-                style={styles.chatScrollView}
-                contentContainerStyle={styles.chatContent}
-              >
-                {isLoadingQuestion ? (
-                  <Text style={styles.loadingText}>Đang tải câu hỏi từ hệ thống AI...</Text>
+            /* Active Interview Stage */
+            <View style={styles.activeStageContent}>
+              {/* Floating Top Right Candidate Camera PIP */}
+              <View style={styles.candidateCamPip}>
+                {Platform.OS === 'web' ? (
+                  <video
+                    ref={videoRef as any}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      borderRadius: 16,
+                      transform: 'scaleX(-1)',
+                    }}
+                  />
                 ) : (
-                  messages.map(msg => {
-                    const isAi = msg.role === 'ai';
-                    return (
-                      <View
-                        key={msg.id}
-                        style={[
-                          styles.bubbleRow,
-                          isAi ? styles.bubbleRowAi : styles.bubbleRowUser,
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.bubble,
-                            isAi ? styles.bubbleAi : styles.bubbleUser,
-                          ]}
-                        >
-                          <Text style={styles.bubbleRole}>{isAi ? '🤖 INBLUE AI' : '👤 Thí sinh'}</Text>
-                          <Text style={styles.bubbleText}>{msg.content}</Text>
-                          <Text style={styles.bubbleTime}>{msg.timestamp}</Text>
-                        </View>
-                      </View>
-                    );
-                  })
+                  <View style={styles.camPipFallback}>
+                    <Text style={{ fontSize: 32 }}>📷</Text>
+                  </View>
                 )}
-              </ScrollView>
+                <View style={styles.camPipBadge}>
+                  <View style={styles.camPipDot} />
+                  <Text style={styles.camPipText}>Camera của bạn</Text>
+                </View>
+              </View>
 
-              {/* Action Controls Bar */}
-              <View style={styles.controlsBar}>
-                <Pressable
-                  onPress={toggleRecording}
-                  style={({ pressed }) => [
-                    styles.micBtn,
-                    isRecording && styles.micBtnActive,
-                    pressed && { opacity: 0.85 },
+              {/* Central Glowing AI Avatar Orb & Wave Visualizer */}
+              <View style={styles.aiOrbCenterContainer}>
+                {/* Expanding Outer Radar Ring */}
+                <Animated.View
+                  style={[
+                    styles.aiWaveRing,
+                    {
+                      transform: [{ scale: waveScale }],
+                      opacity: waveAlpha,
+                    },
                   ]}
-                >
-                  <Text style={styles.micIcon}>{isRecording ? '🔴' : '🎤'}</Text>
-                  <Text style={styles.micText}>{isRecording ? 'Đang thu âm...' : 'Bấm để nói'}</Text>
-                </Pressable>
-
-                <TextInput
-                  value={answerInput}
-                  onChangeText={setAnswerInput}
-                  placeholder="Hoặc nhập câu trả lời của bạn tại đây..."
-                  placeholderTextColor="#64748B"
-                  style={styles.textInput}
                 />
 
+                {/* Glowing Outer Halo */}
+                <Animated.View
+                  style={[
+                    styles.aiOrbHalo,
+                    {
+                      transform: [{ scale: orbScale }],
+                      opacity: orbGlow,
+                    },
+                  ]}
+                />
+
+                {/* Central Circle Button / Avatar */}
+                <View style={styles.aiOrbSphere}>
+                  <View style={styles.aiOrbInnerAura}>
+                    <Text style={{ fontSize: 56 }}>🐋</Text>
+                  </View>
+                </View>
+
+                {/* Title & Live Action State */}
+                <Text style={styles.aiOrbTitle}>Trợ lý phỏng vấn AI</Text>
+                <Text style={styles.aiOrbSubtitle}>
+                  {isSubmitting
+                    ? 'AI đang phân tích câu trả lời của bạn...'
+                    : isRecording
+                    ? 'Đang thu âm câu trả lời của bạn...'
+                    : isAiSpeaking
+                    ? 'AI đang đọc câu hỏi...'
+                    : 'Đang chờ bạn trả lời qua Microphone...'}
+                </Text>
+
+                {isRecording && (
+                  <View style={styles.recordingBadge}>
+                    <View style={styles.recordingDot} />
+                    <Text style={styles.recordingText}>Đang ghi âm</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Giant Primary Voice Control Action Button at Bottom Center */}
+              <View style={styles.primaryVoiceBar}>
                 <Pressable
-                  onPress={handleSubmitAnswer}
-                  disabled={!answerInput.trim() || isSubmitting}
+                  onPress={toggleRecording}
+                  disabled={isSubmitting || isLoadingQuestion}
                   style={({ pressed }) => [
-                    styles.sendBtn,
-                    (!answerInput.trim() || isSubmitting) && styles.sendBtnDisabled,
-                    pressed && { opacity: 0.85 },
+                    styles.giantMicBtn,
+                    isRecording ? styles.giantMicBtnStop : styles.giantMicBtnStart,
+                    pressed && { opacity: 0.9, transform: [{ scale: 0.97 }] },
                   ]}
                 >
-                  <Text style={styles.sendBtnText}>Gửi →</Text>
+                  <Text style={styles.giantMicIcon}>
+                    {isRecording ? '🔴' : '🎤'}
+                  </Text>
+                  <Text style={styles.giantMicText}>
+                    {isSubmitting
+                      ? 'Đang xử lý...'
+                      : isRecording
+                      ? 'Dừng ghi âm và gửi ngay'
+                      : 'Bắt đầu nói (Mở Mic)'}
+                  </Text>
                 </Pressable>
+
+                <Text style={styles.giantMicHint}>
+                  {isRecording
+                    ? 'Đang nghe... Bấm nút trên màn hình chính để dừng và gửi.'
+                    : 'Bấm nút Mic màu đỏ để bắt đầu thu âm câu trả lời của bạn bằng giọng nói.'}
+                </Text>
               </View>
-            </>
+            </View>
           )}
         </View>
+
+        {/* ── Right Collapsible Secondary Chat Drawer (Tin Nhắn Trong Phiên) ── */}
+        {isDrawerOpen && (
+          <View style={[styles.chatDrawer, !isWide && styles.chatDrawerMobile]}>
+            {/* Drawer Header */}
+            <View style={styles.drawerHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ fontSize: 18 }}>💬</Text>
+                <Text style={styles.drawerTitle}>Tin nhắn trong phiên</Text>
+              </View>
+              <Text style={styles.drawerMsgCount}>{messages.length} nội dung trao đổi</Text>
+            </View>
+
+            {/* AI Question Prompt Card */}
+            <View style={styles.aiQuestionPromptBox}>
+              <View style={styles.promptHeader}>
+                <Text style={styles.promptBadgeText}>PHỎNG VẤN VIÊN AI</Text>
+                <Text style={styles.promptPhaseText}>{currentPhase}</Text>
+              </View>
+              <Text style={styles.promptQuestionContent}>{latestAiQuestion}</Text>
+            </View>
+
+            {/* Conversation History List */}
+            <ScrollView
+              ref={scrollViewRef}
+              onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+              style={styles.drawerScrollView}
+              contentContainerStyle={styles.drawerScrollContent}
+            >
+              {messages.map((msg, index) => {
+                const isAi = msg.role === 'ai';
+                return (
+                  <View
+                    key={msg.id || index}
+                    style={[
+                      styles.drawerBubbleRow,
+                      isAi ? styles.drawerBubbleRowAi : styles.drawerBubbleRowUser,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.drawerBubble,
+                        isAi ? styles.drawerBubbleAi : styles.drawerBubbleUser,
+                      ]}
+                    >
+                      <Text style={styles.drawerRole}>{isAi ? '🤖 AI Interviewer' : '👤 Bạn'}</Text>
+                      <Text style={styles.drawerText}>{msg.content}</Text>
+                      <Text style={styles.drawerTime}>{msg.timestamp}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            {/* Bottom Supplementary Text Input Composer */}
+            <View style={styles.textComposerBox}>
+              <TextInput
+                value={answerInput}
+                onChangeText={setAnswerInput}
+                placeholder="Nhập nội dung bổ sung..."
+                placeholderTextColor="#64748B"
+                style={styles.drawerInput}
+              />
+
+              <Pressable
+                onPress={handleSubmitAnswer}
+                disabled={!answerInput.trim() || isSubmitting}
+                style={({ pressed }) => [
+                  styles.drawerSendBtn,
+                  (!answerInput.trim() || isSubmitting) && styles.drawerSendBtnDisabled,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Text style={{ fontSize: 16, color: '#FFF' }}>➤</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -420,311 +562,523 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#050A1A',
+    backgroundColor: '#070C1E',
   },
-  header: {
-    height: 72,
+
+  /* ── Top Header Navigation ── */
+  topHeader: {
+    height: 64,
+    backgroundColor: '#0B132B',
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 28,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: '#0B132B',
+    paddingHorizontal: 24,
+    zIndex: 20,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 10,
   },
-  phaseTitle: {
-    color: '#F1F5F9',
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  questionBadge: {
-    backgroundColor: 'rgba(0, 163, 255, 0.15)',
-    borderWidth: 1,
-    borderColor: '#00A3FF',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  questionBadgeText: {
+  brandTitle: {
     color: '#98CBFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  clockBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(26, 34, 53, 0.6)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  clockText: {
-    color: '#F1F5F9',
     fontSize: 18,
-    fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontWeight: '900',
+    letterSpacing: -0.5,
   },
-  workspace: {
-    flex: 1,
-    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
+  breadcrumbDivider: {
+    color: '#64748B',
+    fontSize: 16,
   },
-  aiPanel: {
-    backgroundColor: '#0A1128',
-    borderRightWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-    position: 'relative',
-  },
-  aiOrbOuter: {
-    position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: 'rgba(0, 163, 255, 0.3)',
-    top: 60,
-  },
-  aiOrbInner: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: '#00A3FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    zIndex: 1,
-  },
-  aiName: {
+  breadcrumbSub: {
     color: '#F1F5F9',
-    fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 8,
-    zIndex: 1,
-  },
-  aiLiveStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(0, 168, 89, 0.15)',
-    borderWidth: 1,
-    borderColor: '#00A859',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    marginBottom: 32,
-    zIndex: 1,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#00A859',
-  },
-  liveText: {
-    color: '#00A859',
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '700',
   },
-  pipCamBox: {
-    width: 180,
-    height: 120,
-    borderRadius: 14,
-    backgroundColor: '#020617',
-    borderWidth: 1,
-    borderColor: 'rgba(152, 203, 255, 0.25)',
-    overflow: 'hidden',
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pipCamFallback: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pipLabel: {
-    position: 'absolute',
-    bottom: 6,
-    left: 6,
-    color: '#94A3B8',
-    fontSize: 10,
-    fontWeight: '600',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  chatPanel: {
-    flex: 1,
-    backgroundColor: '#050A1A',
-  },
-  chatScrollView: {
-    flex: 1,
-  },
-  chatContent: {
-    padding: 24,
-    gap: 20,
-  },
-  loadingText: {
-    color: '#98CBFF',
-    fontSize: 16,
-    textAlign: 'center',
-    marginTop: 40,
-  },
-  bubbleRow: {
-    width: '100%',
-    flexDirection: 'row',
-  },
-  bubbleRowAi: {
-    justifyContent: 'flex-start',
-  },
-  bubbleRowUser: {
-    justifyContent: 'flex-end',
-  },
-  bubble: {
-    maxWidth: '80%',
-    borderRadius: 20,
-    padding: 18,
-  },
-  bubbleAi: {
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  bubbleUser: {
-    backgroundColor: '#00A3FF',
-  },
-  bubbleRole: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  bubbleText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 24,
-    marginBottom: 8,
-  },
-  bubbleTime: {
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontSize: 11,
-    alignSelf: 'flex-end',
-  },
-  controlsBar: {
-    height: 80,
+  headerCenter: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 24,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: '#0B132B',
   },
-  micBtn: {
+  phasePill: {
+    backgroundColor: 'rgba(152, 203, 255, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(152, 203, 255, 0.3)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  phasePillText: {
+    color: '#98CBFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  progressPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  progressPillText: {
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  completePill: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  completePillText: {
+    color: '#10B981',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(152, 203, 255, 0.15)',
+    gap: 12,
+  },
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
     borderWidth: 1,
-    borderColor: '#98CBFF',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
   },
-  micBtnActive: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-    borderColor: '#EF4444',
+  liveBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
   },
-  micIcon: {
-    fontSize: 16,
+  liveBadgeText: {
+    color: '#10B981',
+    fontSize: 12,
+    fontWeight: '600',
   },
-  micText: {
-    color: '#F1F5F9',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  textInput: {
-    flex: 1,
-    height: 48,
-    backgroundColor: '#1E293B',
+  voiceLangBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    color: '#FFFFFF',
-    fontSize: 15,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  sendBtn: {
-    backgroundColor: '#00A3FF',
-    paddingHorizontal: 22,
-    paddingVertical: 14,
-    borderRadius: 14,
+  voiceLangText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
   },
-  sendBtnDisabled: {
-    backgroundColor: '#334155',
-    opacity: 0.5,
+  drawerToggleBtn: {
+    backgroundColor: 'rgba(152, 203, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: '#00A3FF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
-  sendBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
+  drawerToggleText: {
+    color: '#98CBFF',
+    fontSize: 12,
     fontWeight: '700',
   },
-  finishCard: {
+
+  /* ── Main Body Split ── */
+  mainBody: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  stageArea: {
+    flex: 1,
+    backgroundColor: '#070C1E',
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  /* ── Candidate PIP Camera Top Right ── */
+  candidateCamPip: {
+    position: 'absolute',
+    top: 24,
+    right: 28,
+    width: 240,
+    height: 150,
+    borderRadius: 18,
+    backgroundColor: '#020617',
+    borderWidth: 1.5,
+    borderColor: 'rgba(152, 203, 255, 0.3)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    zIndex: 10,
+  },
+  camPipFallback: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
   },
-  finishTitle: {
+  camPipBadge: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  camPipDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  camPipText: {
+    color: '#F1F5F9',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  /* ── Central Glowing AI Orb Stage ── */
+  activeStageContent: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  aiOrbCenterContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 'auto',
+    position: 'relative',
+  },
+  aiWaveRing: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    borderWidth: 2,
+    borderColor: 'rgba(0, 163, 255, 0.4)',
+  },
+  aiOrbHalo: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: 'rgba(0, 163, 255, 0.25)',
+  },
+  aiOrbSphere: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: '#0F172A',
+    borderWidth: 2,
+    borderColor: '#00A3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    shadowColor: '#00A3FF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  aiOrbInnerAura: {
+    width: 108,
+    height: 108,
+    borderRadius: 54,
+    backgroundColor: 'rgba(0, 163, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiOrbTitle: {
+    color: '#F1F5F9',
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  aiOrbSubtitle: {
+    color: '#94A3B8',
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+    maxWidth: 420,
+    marginBottom: 16,
+  },
+  recordingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+  },
+  recordingText: {
+    color: '#EF4444',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
+  /* ── Primary Voice Action Bar (Bottom Center) ── */
+  primaryVoiceBar: {
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 520,
+  },
+  giantMicBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    width: '100%',
+    height: 64,
+    borderRadius: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    marginBottom: 12,
+  },
+  giantMicBtnStart: {
+    backgroundColor: '#00A3FF',
+  },
+  giantMicBtnStop: {
+    backgroundColor: '#EF4444',
+  },
+  giantMicIcon: {
+    fontSize: 22,
+  },
+  giantMicText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  giantMicHint: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  /* ── Right Collapsible Chat Drawer ── */
+  chatDrawer: {
+    width: 380,
+    backgroundColor: '#0B132B',
+    borderLeftWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  chatDrawerMobile: {
+    width: '100%',
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 30,
+  },
+  drawerHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  drawerTitle: {
+    color: '#F1F5F9',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  drawerMsgCount: {
+    color: '#64748B',
+    fontSize: 12,
+  },
+  aiQuestionPromptBox: {
+    margin: 16,
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(152, 203, 255, 0.2)',
+    borderRadius: 16,
+    padding: 16,
+  },
+  promptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  promptBadgeText: {
+    color: '#00A3FF',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  promptPhaseText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  promptQuestionContent: {
+    color: '#F1F5F9',
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: '600',
+  },
+  drawerScrollView: {
+    flex: 1,
+  },
+  drawerScrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 14,
+  },
+  drawerBubbleRow: {
+    width: '100%',
+    flexDirection: 'row',
+  },
+  drawerBubbleRowAi: {
+    justifyContent: 'flex-start',
+  },
+  drawerBubbleRowUser: {
+    justifyContent: 'flex-end',
+  },
+  drawerBubble: {
+    maxWidth: '85%',
+    borderRadius: 16,
+    padding: 14,
+  },
+  drawerBubbleAi: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  drawerBubbleUser: {
+    backgroundColor: '#00A3FF',
+  },
+  drawerRole: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  drawerText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 6,
+  },
+  drawerTime: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 10,
+    alignSelf: 'flex-end',
+  },
+  textComposerBox: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#070C1E',
+  },
+  drawerInput: {
+    flex: 1,
+    height: 44,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    color: '#FFFFFF',
+    fontSize: 13,
+  },
+  drawerSendBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#00A3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  drawerSendBtnDisabled: {
+    backgroundColor: '#334155',
+    opacity: 0.5,
+  },
+
+  /* ── Stage Completion / Evaluation ── */
+  centerStageCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    maxWidth: 520,
+  },
+  stageFinishTitle: {
     color: '#F1F5F9',
     fontSize: 28,
     fontWeight: '800',
     marginBottom: 12,
   },
-  finishSub: {
+  stageFinishSub: {
     color: '#94A3B8',
     fontSize: 16,
     lineHeight: 26,
     textAlign: 'center',
-    maxWidth: 480,
     marginBottom: 32,
   },
-  exitBtn: {
+  stageExitBtn: {
     backgroundColor: '#00A3FF',
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 16,
   },
-  exitBtnText: {
+  stageExitBtnText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
   },
-  evalCard: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  evalTitle: {
+  stageEvalTitle: {
     color: '#98CBFF',
     fontSize: 24,
     fontWeight: '800',
     marginBottom: 12,
   },
-  evalSub: {
+  stageEvalSub: {
     color: '#94A3B8',
     fontSize: 15,
     textAlign: 'center',
-    maxWidth: 420,
+    lineHeight: 24,
   },
 });
