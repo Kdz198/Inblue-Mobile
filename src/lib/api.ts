@@ -50,7 +50,11 @@ export async function enterKioskApi(sessionKey: string): Promise<KioskEnterDtoRe
     let errorMsg = 'Mã PIN không đúng hoặc chưa tới giờ phỏng vấn (±15 phút). Vui lòng thử lại!';
     try {
       const errJson = await response.json();
-      if (errJson.message) errorMsg = errJson.message;
+      if (errJson.error) {
+        errorMsg = errJson.error;
+      } else if (errJson.message) {
+        errorMsg = errJson.message;
+      }
     } catch (e) {
       /* fallback */
     }

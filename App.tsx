@@ -243,11 +243,14 @@ function App() {
         console.warn('Kiosk Auth Failed:', err);
         if (isMounted) {
           setIsVerifying(false);
-          setAuthError(err.message || 'Mã PIN không đúng hoặc chưa tới giờ phỏng vấn (±15 phút)');
-          // Auto-clear PIN after short delay so candidate can re-enter cleanly
+          let rawErr = err.message || '';
+          if (rawErr.toLowerCase().includes('booking not found')) {
+            rawErr = 'Không tìm thấy lịch hẹn phỏng vấn cho mã PIN này. Vui lòng kiểm tra lại!';
+          }
+          setAuthError(rawErr);
           setTimeout(() => {
             if (isMounted) setPin('');
-          }, 1200);
+          }, 1500);
         }
       }
     }
