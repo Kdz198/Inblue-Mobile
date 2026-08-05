@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -222,7 +222,7 @@ function App() {
 
   const isReady = pin.length === PIN_LENGTH;
 
-  // Auto-submit PIN to POST /api/kiosk/enter/{sessionKey} when 6 digits entered
+  // Auto-submit PIN to POST https://api.kdz.asia/api/kiosk/enter/{sessionKey} when 6 digits entered
   useEffect(() => {
     if (!isReady || isVerifying || screenState !== 'PIN_ENTRY') return;
 
@@ -240,12 +240,14 @@ function App() {
           setScreenState('HARDWARE_CHECK');
         }
       } catch (err: any) {
-        console.warn('Kiosk Auth Warning:', err);
-        // Fallback for demo/offline testing: proceed with entered PIN
+        console.warn('Kiosk Auth Failed:', err);
         if (isMounted) {
-          setAiSessionKey(pin);
           setIsVerifying(false);
-          setScreenState('HARDWARE_CHECK');
+          setAuthError(err.message || 'Mã PIN không đúng hoặc chưa tới giờ phỏng vấn (±15 phút)');
+          // Auto-clear PIN after short delay so candidate can re-enter cleanly
+          setTimeout(() => {
+            if (isMounted) setPin('');
+          }, 1200);
         }
       }
     }
@@ -254,13 +256,13 @@ function App() {
     return () => { isMounted = false; };
   }, [isReady, isVerifying, pin, screenState]);
 
-  const pressKey = (val: string) => {
+  const pressKey = useCallback((val: string) => {
     if (isVerifying || screenState !== 'PIN_ENTRY') return;
     setAuthError(null);
     if (val === 'AC') { setPin(''); return; }
     if (val === 'DEL') { setPin(p => p.slice(0, -1)); return; }
-    if (pin.length < PIN_LENGTH) setPin(p => p + val);
-  };
+    setPin(p => (p.length < PIN_LENGTH ? p + val : p));
+  }, [isVerifying, screenState]);
 
   const handleHardwareConfirmed = () => {
     setScreenState('AI_ROOM');
@@ -370,6 +372,7 @@ function App() {
                             styles.pinSlot,
                             active && styles.pinSlotActive,
                             filled && styles.pinSlotFilled,
+                            !!authError && styles.pinSlotError,
                           ]}
                         />
                       );
@@ -378,19 +381,20 @@ function App() {
 
                   {/* Verifying Spinner / Error Label */}
                   {isVerifying && (
-                    <Text style={styles.verifyingText}>Đang xác thực Kiosk session...</Text>
+                    <Text style={styles.verifyingText}>Đang kết nối xác thực Kiosk...</Text>
                   )}
                   {authError && (
                     <Text style={styles.errorText}>{authError}</Text>
                   )}
 
-                  {/* On-Screen Glass Touch Numpad Keypad */}
+                  {/* On-Screen Glass Touch Numpad Keypad (0ms Instant Touch Response) */}
                   <View style={styles.keypad}>
                     {['1','2','3','4','5','6','7','8','9','AC','0','DEL'].map(k => {
                       const isAction = k === 'AC' || k === 'DEL';
                       return (
                         <Pressable
                           key={k}
+                          delayPressIn={0}
                           onPress={() => pressKey(k)}
                           style={({ pressed }) => [
                             styles.key,
@@ -625,6 +629,10 @@ function createStyles(isWide: boolean) {
       shadowRadius: 16,
       elevation: 8,
     },
+    pinSlotError: {
+      borderColor: '#EF4444',
+      backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    },
     verifyingText: {
       color: C.primary,
       fontSize: 14,
@@ -634,8 +642,10 @@ function createStyles(isWide: boolean) {
     errorText: {
       color: '#EF4444',
       fontSize: 14,
-      fontWeight: '600',
+      fontWeight: '700',
+      textAlign: 'center',
       marginBottom: 24,
+      paddingHorizontal: 16,
     },
 
     /* ── Keypad ── */
@@ -659,6 +669,8 @@ function createStyles(isWide: boolean) {
       ...(Platform.OS === 'web' ? {
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
       } as any : {}),
     },
     keyPressed: {

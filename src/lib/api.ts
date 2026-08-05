@@ -1,6 +1,6 @@
 import createClient from 'openapi-fetch';
 
-export const BASE_URL = 'http://localhost:8080';
+export const BASE_URL = 'https://api.kdz.asia';
 
 export interface KioskEnterDtoResponse {
   aiSessionKey: string;
@@ -47,7 +47,14 @@ export async function enterKioskApi(sessionKey: string): Promise<KioskEnterDtoRe
   });
 
   if (!response.ok) {
-    throw new Error(`Xác thực mã PIN thất bại (${response.status})`);
+    let errorMsg = 'Mã PIN không đúng hoặc chưa tới giờ phỏng vấn (±15 phút). Vui lòng thử lại!';
+    try {
+      const errJson = await response.json();
+      if (errJson.message) errorMsg = errJson.message;
+    } catch (e) {
+      /* fallback */
+    }
+    throw new Error(errorMsg);
   }
 
   return response.json();
