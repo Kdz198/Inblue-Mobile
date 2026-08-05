@@ -27,6 +27,7 @@ module.exports = {
       {
         test: /\.[jt]sx?$/,
         include: [
+          path.resolve(appDirectory, 'src'),
           path.resolve(appDirectory, 'App.tsx'),
           path.resolve(appDirectory, 'index.web.js'),
           path.resolve(
@@ -38,7 +39,7 @@ module.exports = {
           loader: 'babel-loader',
           options: {
             cacheDirectory: true,
-            presets: ['module:@react-native/babel-preset'],
+            presets: ['babel-preset-expo'],
           },
         },
       },
