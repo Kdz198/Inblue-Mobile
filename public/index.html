@@ -66,6 +66,20 @@
         height: 0;
         display: none;
       }
+
+      #live-transcript-hud,
+      #live-transcript-hud * {
+        -ms-overflow-style: none !important;
+        scrollbar-width: none !important;
+      }
+
+      #live-transcript-hud::-webkit-scrollbar,
+      #live-transcript-hud *::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+        display: none !important;
+        background: transparent !important;
+      }
     </style>
   </head>
   <body>

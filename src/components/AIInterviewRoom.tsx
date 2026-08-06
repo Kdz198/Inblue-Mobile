@@ -850,7 +850,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                   </View>
                 </View>
 
-                <View style={styles.liveTranscriptHud}>
+                <View nativeID="live-transcript-hud" style={styles.liveTranscriptHud}>
                   <View style={styles.hudCornerTopLeft} />
                   <View style={styles.hudCornerBottomRight} />
                   <View style={styles.transcriptHeader}>
