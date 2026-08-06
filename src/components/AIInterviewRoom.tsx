@@ -390,7 +390,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
           </View>
 
           <View style={styles.clockBox}>
-            <LineIcon name="clock" size={15} />
+            <LineIcon name="clock" size={18} />
             <Text style={styles.clockText}>{clockStr}</Text>
           </View>
 
@@ -398,7 +398,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
             onPress={() => setIsDrawerOpen(!isDrawerOpen)}
             style={({ pressed }) => [styles.drawerToggleBtn, pressed && { opacity: 0.8 }]}
           >
-            <LineIcon name={isDrawerOpen ? 'hide' : 'history'} size={15} color="#CBD5E1" />
+            <LineIcon name={isDrawerOpen ? 'hide' : 'history'} size={18} color="#CBD5E1" />
             <Text style={styles.drawerToggleText}>{isDrawerOpen ? 'Ẩn lịch sử' : 'Lịch sử trao đổi'}</Text>
           </Pressable>
         </View>
@@ -477,7 +477,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
                   <View style={styles.aiOrbSphere}>
                     <View style={styles.aiOrbInnerAura}>
-                      <LineIcon name="bot" size={62} color="#98CBFF" />
+                      <LineIcon name="bot" size={72} color="#98CBFF" />
                     </View>
                   </View>
 
@@ -512,7 +512,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                       pressed && { opacity: 0.9, transform: [{ scale: 0.96 }] },
                     ]}
                   >
-                    <LineIcon name={isRecording ? 'stop' : 'mic'} size={22} />
+                    <LineIcon name={isRecording ? 'stop' : 'mic'} size={25} />
                   </Pressable>
                   <View style={styles.micVisualizer}>
                     <View style={[styles.micBar, styles.micBarOne]} />
@@ -636,7 +636,13 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
       </View>
 
       <View style={styles.footerBar}>
-        <Text style={styles.footerText}>FPT UNIVERSITY  •  CAPSTONE PROJECT FALL 2024</Text>
+        <View style={styles.footerMetaGroup}>
+          <Text style={styles.footerText}>FPT UNIVERSITY</Text>
+          <View style={styles.footerDivider} />
+          <Text style={styles.footerText}>SOFTWARE ENGINEERING</Text>
+          <View style={styles.footerDivider} />
+          <Text style={styles.footerText}>SUMMER 2026</Text>
+        </View>
         <Text style={styles.footerText}>POWERED BY INBLUE PLATFORM</Text>
       </View>
     </View>
@@ -655,14 +661,15 @@ const styles = StyleSheet.create({
 
   /* ── Top Header Navigation ── */
   topHeader: {
-    height: 64,
+    height: 72,
     backgroundColor: 'rgba(5, 10, 26, 0.64)',
     borderBottomWidth: 0,
     borderColor: 'rgba(152, 203, 255, 0.08)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 48,
+    paddingLeft: 50,
+    paddingRight: 78,
     zIndex: 20,
     ...(Platform.OS === 'web' ? {
       backdropFilter: 'blur(20px)',
@@ -676,7 +683,7 @@ const styles = StyleSheet.create({
   },
   brandTitle: {
     color: '#98CBFF',
-    fontSize: 34,
+    fontSize: 41,
     fontWeight: '900',
     letterSpacing: 0,
   },
@@ -685,19 +692,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.22)',
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
   },
   brandBadgeText: {
     color: '#98CBFF',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.4,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 13,
+    gap: 16,
+    marginRight: 18,
   },
   liveBadge: {
     flexDirection: 'row',
@@ -707,18 +715,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(16, 185, 129, 0.3)',
     borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
   },
   liveBadgeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
     backgroundColor: '#10B981',
   },
   liveBadgeText: {
     color: '#10B981',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '600',
   },
   clockBox: {
@@ -729,12 +737,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
   },
   clockText: {
     color: '#E2E8F0',
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
@@ -746,12 +754,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.13)',
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
   },
   drawerToggleText: {
     color: '#CBD5E1',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
 
@@ -760,8 +768,8 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     overflow: 'hidden',
-    paddingHorizontal: 48,
-    gap: 32,
+    paddingHorizontal: 50,
+    gap: 34,
   },
   stageArea: {
     flex: 1,
@@ -782,13 +790,13 @@ const styles = StyleSheet.create({
   activeStageWrapper: {
     flex: 1,
     width: '100%',
-    maxWidth: 640,
+    maxWidth: 715,
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 0,
   },
   activeStageWrapperCompact: {
-    maxWidth: 610,
+    maxWidth: 690,
   },
   interviewFocusStack: {
     width: '100%',
@@ -803,33 +811,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    width: 258,
-    height: 258,
-    marginTop: 6,
+    width: 286,
+    height: 286,
+    marginTop: 8,
   },
   aiHolographicNodeCompact: {
-    width: 230,
-    height: 230,
+    width: 264,
+    height: 264,
   },
   aiWaveRing: {
     position: 'absolute',
-    width: 238,
-    height: 238,
-    borderRadius: 119,
+    width: 264,
+    height: 264,
+    borderRadius: 132,
     borderWidth: 1,
     borderColor: 'rgba(0, 163, 255, 0.36)',
   },
   aiOrbHalo: {
     position: 'absolute',
-    width: 178,
-    height: 178,
-    borderRadius: 89,
+    width: 202,
+    height: 202,
+    borderRadius: 101,
     backgroundColor: 'rgba(0, 163, 255, 0.18)',
   },
   aiOrbSphere: {
-    width: 156,
-    height: 156,
-    borderRadius: 78,
+    width: 176,
+    height: 176,
+    borderRadius: 88,
     backgroundColor: '#0F172A',
     borderWidth: 2,
     borderColor: '#98CBFF',
@@ -842,9 +850,9 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   aiOrbInnerAura: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
+    width: 116,
+    height: 116,
+    borderRadius: 58,
     backgroundColor: 'rgba(0, 163, 255, 0.16)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -883,14 +891,14 @@ const styles = StyleSheet.create({
   /* ── Current Question Glass Card ── */
   currentQuestionGlassCard: {
     width: '100%',
-    maxWidth: 590,
+    maxWidth: 665,
     backgroundColor: 'rgba(26, 34, 53, 0.64)',
     borderWidth: 1,
     borderColor: 'rgba(0, 163, 255, 0.36)',
     borderRadius: 10,
-    paddingHorizontal: 28,
-    paddingTop: 18,
-    paddingBottom: 19,
+    paddingHorizontal: 32,
+    paddingTop: 20,
+    paddingBottom: 22,
     marginBottom: 16,
     alignItems: 'center',
     position: 'relative',
@@ -944,8 +952,8 @@ const styles = StyleSheet.create({
   },
   questionCardBody: {
     color: '#F1F5F9',
-    fontSize: 15,
-    lineHeight: 23,
+    fontSize: 17,
+    lineHeight: 26,
     fontWeight: '600',
     letterSpacing: 0,
     textAlign: 'center',
@@ -983,9 +991,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   micOrbButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -1008,8 +1016,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    height: 29,
-    marginTop: 7,
+    height: 33,
+    marginTop: 8,
   },
   micBar: {
     width: 4,
@@ -1020,26 +1028,26 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   micBarOne: {
-    height: 11,
+    height: 13,
     opacity: 0.5,
   },
   micBarTwo: {
-    height: 18,
+    height: 22,
     opacity: 0.72,
   },
   micBarThree: {
-    height: 25,
+    height: 30,
     opacity: 1,
   },
   liveTranscriptHud: {
     width: '100%',
-    maxWidth: 590,
-    minHeight: 118,
+    maxWidth: 665,
+    minHeight: 134,
     backgroundColor: 'rgba(5, 10, 26, 0.68)',
     borderWidth: 1,
     borderColor: 'rgba(0, 163, 255, 0.22)',
     borderRadius: 8,
-    padding: 14,
+    padding: 16,
     position: 'relative',
     shadowColor: '#000',
     shadowOpacity: 0.38,
@@ -1085,7 +1093,7 @@ const styles = StyleSheet.create({
   },
   transcriptTitle: {
     color: '#00A3FF',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 2,
   },
@@ -1110,8 +1118,8 @@ const styles = StyleSheet.create({
   transcriptText: {
     flex: 1,
     color: '#E2E8F0',
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 23,
     fontWeight: '400',
   },
   transcriptCursor: {
@@ -1155,7 +1163,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   chatDrawer: {
-    width: 252,
+    width: 286,
     backgroundColor: 'rgba(5, 10, 26, 0.18)',
     borderLeftWidth: 0,
     borderColor: 'rgba(152, 203, 255, 0.08)',
@@ -1193,7 +1201,7 @@ const styles = StyleSheet.create({
   },
   drawerTitle: {
     color: '#F1F5F9',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.8,
   },
@@ -1262,8 +1270,8 @@ const styles = StyleSheet.create({
   },
   drawerText: {
     color: '#FFFFFF',
-    fontSize: 10,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 17,
     marginBottom: 7,
   },
   drawerTime: {
@@ -1308,20 +1316,31 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   footerBar: {
-    height: 30,
+    height: 48,
     borderTopWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.08)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 48,
-    backgroundColor: 'rgba(5, 10, 26, 0.42)',
+    paddingHorizontal: 50,
+    backgroundColor: 'rgba(5, 10, 26, 0.55)',
+  },
+  footerMetaGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 13,
+  },
+  footerDivider: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(148, 163, 184, 0.38)',
   },
   footerText: {
-    color: 'rgba(148, 163, 184, 0.48)',
-    fontSize: 9,
+    color: 'rgba(148, 163, 184, 0.7)',
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 2,
+    letterSpacing: 2.4,
   },
 
   /* ── Stage Completion / Evaluation ── */
