@@ -169,6 +169,13 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const orbGlow = useRef(new Animated.Value(0.4)).current;
   const waveScale = useRef(new Animated.Value(1)).current;
   const waveAlpha = useRef(new Animated.Value(0.6)).current;
+  const audioWaveLevels = useRef([
+    new Animated.Value(0.72),
+    new Animated.Value(1),
+    new Animated.Value(1.18),
+    new Animated.Value(1),
+    new Animated.Value(0.72),
+  ]).current;
 
   // Real-time clock
   const [clockStr, setClockStr] = useState('');
@@ -214,6 +221,52 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
       recognitionRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const isVoiceActive = isRecording || isAiSpeaking;
+    const peakLevels = isRecording
+      ? [1.45, 2.05, 2.55, 1.95, 1.4]
+      : [1.15, 1.62, 1.9, 1.56, 1.12];
+    const restingLevels = [0.72, 1, 1.18, 1, 0.72];
+
+    if (!isVoiceActive) {
+      audioWaveLevels.forEach((level, index) => {
+        Animated.timing(level, {
+          toValue: restingLevels[index],
+          duration: 260,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }).start();
+      });
+      return undefined;
+    }
+
+    const waveLoops = audioWaveLevels.map((level, index) => {
+      const animation = Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * (isRecording ? 62 : 92)),
+          Animated.timing(level, {
+            toValue: peakLevels[index],
+            duration: isRecording ? 210 : 310,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(level, {
+            toValue: restingLevels[index],
+            duration: isRecording ? 240 : 360,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+      return animation;
+    });
+
+    return () => {
+      waveLoops.forEach(animation => animation.stop());
+    };
+  }, [audioWaveLevels, isAiSpeaking, isRecording]);
 
   // Speak AI Question using Text-to-Speech (TTS)
   const speakText = useCallback((text: string) => {
@@ -562,11 +615,46 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                     <LineIcon name={isRecording ? 'stop' : 'mic'} size={25} />
                   </Pressable>
                   <View style={styles.micVisualizer}>
-                    <View style={[styles.micBar, styles.micBarOne]} />
-                    <View style={[styles.micBar, styles.micBarTwo]} />
-                    <View style={[styles.micBar, styles.micBarThree]} />
-                    <View style={[styles.micBar, styles.micBarTwo]} />
-                    <View style={[styles.micBar, styles.micBarOne]} />
+                    <Animated.View
+                      style={[
+                        styles.micBar,
+                        styles.micBarOne,
+                        styles.micBarActive,
+                        { transform: [{ scaleY: audioWaveLevels[0] }] },
+                      ]}
+                    />
+                    <Animated.View
+                      style={[
+                        styles.micBar,
+                        styles.micBarTwo,
+                        styles.micBarActive,
+                        { transform: [{ scaleY: audioWaveLevels[1] }] },
+                      ]}
+                    />
+                    <Animated.View
+                      style={[
+                        styles.micBar,
+                        styles.micBarThree,
+                        styles.micBarActive,
+                        { transform: [{ scaleY: audioWaveLevels[2] }] },
+                      ]}
+                    />
+                    <Animated.View
+                      style={[
+                        styles.micBar,
+                        styles.micBarTwo,
+                        styles.micBarActive,
+                        { transform: [{ scaleY: audioWaveLevels[3] }] },
+                      ]}
+                    />
+                    <Animated.View
+                      style={[
+                        styles.micBar,
+                        styles.micBarOne,
+                        styles.micBarActive,
+                        { transform: [{ scaleY: audioWaveLevels[4] }] },
+                      ]}
+                    />
                   </View>
                 </View>
 
@@ -1078,6 +1166,10 @@ const styles = StyleSheet.create({
     shadowColor: '#00A3FF',
     shadowOpacity: 0.6,
     shadowRadius: 8,
+  },
+  micBarActive: {
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
   },
   micBarOne: {
     height: 13,
