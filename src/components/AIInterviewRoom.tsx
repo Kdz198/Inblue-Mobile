@@ -803,7 +803,12 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                       <LineIcon name="edit" size={13} color="#9CAFC5" />
                     </Pressable>
                   </View>
-                  <View style={styles.transcriptBody}>
+                  <ScrollView
+                    style={styles.transcriptBody}
+                    contentContainerStyle={styles.transcriptBodyContent}
+                    showsVerticalScrollIndicator={Platform.OS === 'web'}
+                    nestedScrollEnabled
+                  >
                     <Text style={styles.transcriptText}>
                       {answerInput.trim()
                         ? `"${answerInput.trim()}"`
@@ -812,7 +817,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                         : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
                     </Text>
                     {isRecording && <View style={styles.transcriptCursor} />}
-                  </View>
+                  </ScrollView>
                   <View style={styles.transcriptFooter}>
                     <Text style={styles.transcriptState}>{isRecording ? 'LISTENING...' : 'VOICE READY'}</Text>
                     <Pressable
@@ -1350,8 +1355,10 @@ const styles = StyleSheet.create({
   },
   liveTranscriptHud: {
     width: '100%',
-    maxWidth: 665,
+    maxWidth: '100%',
     minHeight: 134,
+    maxHeight: 172,
+    flexShrink: 0,
     backgroundColor: 'rgba(5, 10, 26, 0.68)',
     borderWidth: 1,
     borderColor: 'rgba(0, 163, 255, 0.22)',
@@ -1421,15 +1428,33 @@ const styles = StyleSheet.create({
   },
   transcriptBody: {
     minHeight: 43,
+    maxHeight: 74,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web' ? {
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      scrollbarColor: 'rgba(0, 163, 255, 0.48) rgba(8, 18, 38, 0.18)',
+      scrollbarWidth: 'thin',
+    } as any : {}),
+  },
+  transcriptBodyContent: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    flexGrow: 1,
+    paddingRight: 6,
   },
   transcriptText: {
     flex: 1,
+    flexShrink: 1,
     color: '#E2E8F0',
     fontSize: 15,
     lineHeight: 23,
     fontWeight: '400',
+    ...(Platform.OS === 'web' ? {
+      whiteSpace: 'normal',
+      overflowWrap: 'anywhere',
+      wordBreak: 'break-word',
+    } as any : {}),
   },
   transcriptCursor: {
     width: 5,
