@@ -160,6 +160,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const [isFinished, setIsFinished] = useState(false);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
+  const [thinkingDotStep, setThinkingDotStep] = useState(0);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -177,7 +178,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const waveScale = useRef(new Animated.Value(1)).current;
   const waveAlpha = useRef(new Animated.Value(0.6)).current;
   const audioWaveLevels = useRef(audioWaveRestingLevels.map(level => new Animated.Value(level))).current;
-  const thinkingPulse = useRef(new Animated.Value(0)).current;
+  const aiSpeechAuraScale = useRef(new Animated.Value(1)).current;
+  const aiSpeechAuraOpacity = useRef(new Animated.Value(0)).current;
 
   // Real-time clock
   const [clockStr, setClockStr] = useState('');
@@ -218,23 +220,25 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   }, [orbScale, orbGlow, waveScale, waveAlpha]);
 
   useEffect(() => {
-    const thinkingAnim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(thinkingPulse, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(thinkingPulse, { toValue: 0, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ])
-    );
-    thinkingAnim.start();
-    return () => thinkingAnim.stop();
-  }, [thinkingPulse]);
-
-  useEffect(() => {
     return () => {
       recognitionRef.current?.stop?.();
       recognitionRef.current = null;
       speechResultsEnabledRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLoadingQuestion && !isSubmitting) {
+      setThinkingDotStep(0);
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      setThinkingDotStep(prev => (prev + 1) % 3);
+    }, 330);
+
+    return () => clearInterval(interval);
+  }, [isLoadingQuestion, isSubmitting]);
 
   const resetAudioWave = useCallback((duration = 180) => {
     audioWaveLevels.forEach((level, index) => {
@@ -334,6 +338,28 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     }
   }, [setAudioWaveEnergy, stopMicAudioMeter]);
 
+  const pulseAiSpeechAura = useCallback(() => {
+    aiSpeechAuraScale.stopAnimation();
+    aiSpeechAuraOpacity.stopAnimation();
+    aiSpeechAuraScale.setValue(0.94);
+    aiSpeechAuraOpacity.setValue(0.42);
+
+    Animated.parallel([
+      Animated.timing(aiSpeechAuraScale, {
+        toValue: 1.26,
+        duration: 520,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(aiSpeechAuraOpacity, {
+        toValue: 0.04,
+        duration: 520,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [aiSpeechAuraOpacity, aiSpeechAuraScale]);
+
   useEffect(() => {
     return () => {
       stopMicAudioMeter();
@@ -349,25 +375,35 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'vi-VN';
         utterance.rate = 1.0;
-        utterance.onstart = () => setIsAiSpeaking(true);
+        utterance.onstart = () => {
+          setIsAiSpeaking(true);
+          pulseAiSpeechAura();
+        };
+        utterance.onboundary = () => pulseAiSpeechAura();
         utterance.onpause = () => setIsAiSpeaking(false);
-        utterance.onresume = () => setIsAiSpeaking(true);
+        utterance.onresume = () => {
+          setIsAiSpeaking(true);
+          pulseAiSpeechAura();
+        };
         utterance.onend = () => {
           setIsAiSpeaking(false);
+          aiSpeechAuraOpacity.setValue(0);
           resetAudioWave();
         };
         utterance.onerror = () => {
           setIsAiSpeaking(false);
+          aiSpeechAuraOpacity.setValue(0);
           resetAudioWave();
         };
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.warn(e);
         setIsAiSpeaking(false);
+        aiSpeechAuraOpacity.setValue(0);
         resetAudioWave();
       }
     }
-  }, [resetAudioWave]);
+  }, [aiSpeechAuraOpacity, pulseAiSpeechAura, resetAudioWave]);
 
   // Handle Response from API (Start or Submit)
   const handleApiResponse = useCallback((data: InterviewStartResponse) => {
@@ -640,39 +676,22 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                     <View style={styles.questionCardBadgeWrap}>
                       <View style={styles.questionCardRule} />
                       <LineIcon name="question" size={14} color="#00A3FF" />
-                      <Text style={styles.questionCardBadge}>CÂU HỎI HIỆN TẠI</Text>
+                      <Text style={styles.questionCardBadge}>{isQuestionPending ? 'AI ĐANG SUY NGHĨ' : 'CÂU HỎI HIỆN TẠI'}</Text>
                       <View style={styles.questionCardRule} />
                     </View>
-                    <Text style={styles.questionCardPhase}>Q{String(currentQuestionIndex).padStart(2, '0')} / {String(totalQuestions).padStart(2, '0')}</Text>
+                    {!isQuestionPending && (
+                      <Text style={styles.questionCardPhase}>Q{String(currentQuestionIndex).padStart(2, '0')} / {String(totalQuestions).padStart(2, '0')}</Text>
+                    )}
                   </View>
                   {isQuestionPending ? (
                     <View style={styles.questionThinkingWrap}>
                       <View style={styles.questionThinkingDots}>
                         {[0, 1, 2].map(index => (
-                          <Animated.View
+                          <View
                             key={index}
                             style={[
                               styles.questionThinkingDot,
-                              {
-                                opacity: thinkingPulse.interpolate({
-                                  inputRange: [0, 0.34, 0.67, 1],
-                                  outputRange: index === 0
-                                    ? [1, 0.45, 0.45, 1]
-                                    : index === 1
-                                    ? [0.45, 1, 0.45, 0.45]
-                                    : [0.45, 0.45, 1, 0.45],
-                                }),
-                                transform: [{
-                                  scale: thinkingPulse.interpolate({
-                                    inputRange: [0, 0.34, 0.67, 1],
-                                    outputRange: index === 0
-                                      ? [1.18, 0.82, 0.82, 1.18]
-                                      : index === 1
-                                      ? [0.82, 1.18, 0.82, 0.82]
-                                      : [0.82, 0.82, 1.18, 0.82],
-                                  }),
-                                }],
-                              },
+                              thinkingDotStep === index && styles.questionThinkingDotActive,
                             ]}
                           />
                         ))}
@@ -691,8 +710,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                         style={[
                           styles.aiSpeechAura,
                           {
-                            transform: [{ scale: waveScale }],
-                            opacity: waveAlpha,
+                            transform: [{ scale: aiSpeechAuraScale }],
+                            opacity: aiSpeechAuraOpacity,
                           },
                         ]}
                       />
@@ -700,8 +719,11 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                         style={[
                           styles.aiSpeechAuraOuter,
                           {
-                            transform: [{ scale: orbScale }],
-                            opacity: orbGlow,
+                            transform: [{ scale: aiSpeechAuraScale }],
+                            opacity: aiSpeechAuraOpacity.interpolate({
+                              inputRange: [0, 0.42],
+                              outputRange: [0, 0.2],
+                            }),
                           },
                         ]}
                       />
@@ -1080,25 +1102,26 @@ const styles = StyleSheet.create({
   },
   aiSpeechAura: {
     position: 'absolute',
-    width: 246,
-    height: 246,
-    borderRadius: 123,
-    borderWidth: 2,
-    borderColor: 'rgba(0, 163, 255, 0.62)',
-    shadowColor: '#00A3FF',
-    shadowOpacity: 0.62,
-    shadowRadius: 28,
+    width: 218,
+    height: 218,
+    borderRadius: 109,
+    borderWidth: 1,
+    borderColor: 'rgba(152, 203, 255, 0.48)',
+    backgroundColor: 'rgba(0, 163, 255, 0.035)',
+    shadowColor: '#98CBFF',
+    shadowOpacity: 0.34,
+    shadowRadius: 24,
   },
   aiSpeechAuraOuter: {
     position: 'absolute',
-    width: 306,
-    height: 306,
-    borderRadius: 153,
+    width: 278,
+    height: 278,
+    borderRadius: 139,
     borderWidth: 1,
-    borderColor: 'rgba(152, 203, 255, 0.26)',
+    borderColor: 'rgba(0, 163, 255, 0.18)',
     shadowColor: '#98CBFF',
-    shadowOpacity: 0.32,
-    shadowRadius: 36,
+    shadowOpacity: 0.18,
+    shadowRadius: 28,
   },
   aiOrbHalo: {
     position: 'absolute',
@@ -1212,10 +1235,17 @@ const styles = StyleSheet.create({
     width: 9,
     height: 9,
     borderRadius: 4.5,
-    backgroundColor: '#00A3FF',
+    backgroundColor: 'rgba(0, 163, 255, 0.42)',
     shadowColor: '#00A3FF',
-    shadowOpacity: 0.9,
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    transform: [{ scale: 0.82 }],
+  },
+  questionThinkingDotActive: {
+    backgroundColor: '#98CBFF',
+    shadowOpacity: 0.86,
     shadowRadius: 14,
+    transform: [{ scale: 1.22 }],
   },
   questionCardBody: {
     color: '#F1F5F9',
