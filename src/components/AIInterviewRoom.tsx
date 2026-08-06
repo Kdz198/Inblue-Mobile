@@ -13,10 +13,12 @@ import {
 import {
   ChatMessage,
   InterviewStartResponse,
+  generateTtsAudioApi,
   startInterviewApi,
   submitAnswerApi,
 } from '../lib/api';
 import { CyberCanvasBackground } from './CyberCanvasBackground';
+import { playTtsAudioBlob, type TtsPlayback } from '../lib/ttsAudio';
 
 interface AIInterviewRoomProps {
   sessionKey: string;
@@ -163,6 +165,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const [thinkingDotStep, setThinkingDotStep] = useState(0);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const transcriptScrollViewRef = useRef<ScrollView | null>(null);
   const recognitionRef = useRef<any>(null);
   const speechResultsEnabledRef = useRef(false);
   const recordingBaseTranscriptRef = useRef('');
@@ -171,6 +174,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const micAudioSourceRef = useRef<any>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const micWaveFrameRef = useRef<number | null>(null);
+  const ttsPlaybackRef = useRef<TtsPlayback | null>(null);
 
   // Pulse animation for central AI Avatar Orb
   const orbScale = useRef(new Animated.Value(1)).current;
@@ -239,6 +243,10 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
     return () => clearInterval(interval);
   }, [isLoadingQuestion, isSubmitting]);
+
+  useEffect(() => {
+    transcriptScrollViewRef.current?.scrollToEnd({ animated: true });
+  }, [answerInput]);
 
   const resetAudioWave = useCallback((duration = 180) => {
     audioWaveLevels.forEach((level, index) => {
@@ -360,14 +368,30 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     ]).start();
   }, [aiSpeechAuraOpacity, aiSpeechAuraScale]);
 
+  const setAiSpeechAuraEnergy = useCallback((energy: number) => {
+    const normalizedEnergy = Math.max(0, Math.min(1, energy));
+    aiSpeechAuraScale.setValue(0.96 + normalizedEnergy * 0.34);
+    aiSpeechAuraOpacity.setValue(normalizedEnergy > 0.015 ? 0.08 + normalizedEnergy * 0.36 : 0);
+  }, [aiSpeechAuraOpacity, aiSpeechAuraScale]);
+
   useEffect(() => {
     return () => {
       stopMicAudioMeter();
     };
   }, [stopMicAudioMeter]);
 
-  // Speak AI Question using Text-to-Speech (TTS)
-  const speakText = useCallback((text: string) => {
+  const stopTtsPlayback = useCallback(() => {
+    ttsPlaybackRef.current?.stop();
+    ttsPlaybackRef.current = null;
+    aiSpeechAuraScale.setValue(1);
+    aiSpeechAuraOpacity.setValue(0);
+
+    if (Platform.OS === 'web' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, [aiSpeechAuraOpacity, aiSpeechAuraScale]);
+
+  const speakWithBrowserFallback = useCallback((text: string) => {
     if (Platform.OS === 'web' && 'speechSynthesis' in window) {
       try {
         resetAudioWave(120);
@@ -387,23 +411,76 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
         };
         utterance.onend = () => {
           setIsAiSpeaking(false);
-          aiSpeechAuraOpacity.setValue(0);
+          setAiSpeechAuraEnergy(0);
           resetAudioWave();
         };
         utterance.onerror = () => {
           setIsAiSpeaking(false);
-          aiSpeechAuraOpacity.setValue(0);
+          setAiSpeechAuraEnergy(0);
           resetAudioWave();
         };
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.warn(e);
         setIsAiSpeaking(false);
-        aiSpeechAuraOpacity.setValue(0);
+        setAiSpeechAuraEnergy(0);
         resetAudioWave();
       }
     }
-  }, [aiSpeechAuraOpacity, pulseAiSpeechAura, resetAudioWave]);
+  }, [pulseAiSpeechAura, resetAudioWave, setAiSpeechAuraEnergy]);
+
+  // Speak AI Question using backend TTS audio, with browser TTS as a web fallback.
+  const speakText = useCallback(async (text: string) => {
+    stopTtsPlayback();
+
+    try {
+      resetAudioWave(120);
+      setIsAiSpeaking(true);
+      pulseAiSpeechAura();
+
+      const audioBlob = await generateTtsAudioApi(text);
+      ttsPlaybackRef.current = await playTtsAudioBlob(audioBlob, {
+        onStart: () => {
+          setIsAiSpeaking(true);
+          pulseAiSpeechAura();
+        },
+        onEnd: () => {
+          setIsAiSpeaking(false);
+          setAiSpeechAuraEnergy(0);
+          resetAudioWave();
+          ttsPlaybackRef.current = null;
+        },
+        onError: error => {
+          console.warn('Unable to play backend TTS audio:', error);
+          setIsAiSpeaking(false);
+          setAiSpeechAuraEnergy(0);
+          resetAudioWave();
+          speakWithBrowserFallback(text);
+        },
+        onVolume: energy => {
+          setAiSpeechAuraEnergy(energy);
+        },
+      });
+    } catch (e) {
+      console.warn('Unable to play backend TTS audio:', e);
+      setIsAiSpeaking(false);
+      setAiSpeechAuraEnergy(0);
+      resetAudioWave();
+      speakWithBrowserFallback(text);
+    }
+  }, [
+    pulseAiSpeechAura,
+    resetAudioWave,
+    setAiSpeechAuraEnergy,
+    speakWithBrowserFallback,
+    stopTtsPlayback,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      stopTtsPlayback();
+    };
+  }, [stopTtsPlayback]);
 
   // Handle Response from API (Start or Submit)
   const handleApiResponse = useCallback((data: InterviewStartResponse) => {
@@ -804,6 +881,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                     </Pressable>
                   </View>
                   <ScrollView
+                    ref={transcriptScrollViewRef}
+                    onContentSizeChange={() => transcriptScrollViewRef.current?.scrollToEnd({ animated: true })}
                     style={styles.transcriptBody}
                     contentContainerStyle={styles.transcriptBodyContent}
                     showsVerticalScrollIndicator={Platform.OS === 'web'}

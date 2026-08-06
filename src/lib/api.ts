@@ -139,3 +139,32 @@ export async function submitAnswerApi(sessionKey: string, answerText: string): P
     throw err;
   }
 }
+
+export async function generateTtsAudioApi(text: string): Promise<Blob> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYSTEM_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${BASE_URL}/api/v1/interview/tts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Táº¡o giá»ng Ä‘á»c AI tháº¥t báº¡i (${response.status})`);
+    }
+
+    return await response.blob();
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Táº¡o giá»ng Ä‘á»c AI quÃ¡ thá»i gian (Timeout 3 phÃºt). Vui lÃ²ng thá»­ láº¡i!');
+    }
+    throw err;
+  }
+}
