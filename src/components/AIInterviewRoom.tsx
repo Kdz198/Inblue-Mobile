@@ -24,6 +24,9 @@ interface AIInterviewRoomProps {
 }
 
 const iconStroke = '#98CBFF';
+const audioWaveRestingLevels = [0.55, 0.78, 1.05, 0.72, 1.25, 0.88, 1.42, 1.08, 1.62, 1.08, 1.42, 0.88, 1.25, 0.72, 1.05, 0.78, 0.55];
+const micWaveMultipliers = [0.34, 0.58, 0.92, 0.5, 1.2, 0.68, 1.42, 0.9, 1.68, 0.9, 1.42, 0.68, 1.2, 0.5, 0.92, 0.58, 0.34];
+const aiWaveMultipliers = [0.18, 0.34, 0.52, 0.28, 0.66, 0.42, 0.78, 0.54, 0.88, 0.54, 0.78, 0.42, 0.66, 0.28, 0.52, 0.34, 0.18];
 
 function LineIcon({
   name,
@@ -161,6 +164,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
   const scrollViewRef = useRef<ScrollView | null>(null);
   const recognitionRef = useRef<any>(null);
+  const speechResultsEnabledRef = useRef(false);
   const recordingBaseTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
   const micAudioContextRef = useRef<any>(null);
@@ -174,13 +178,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const orbGlow = useRef(new Animated.Value(0.4)).current;
   const waveScale = useRef(new Animated.Value(1)).current;
   const waveAlpha = useRef(new Animated.Value(0.6)).current;
-  const audioWaveLevels = useRef([
-    new Animated.Value(0.72),
-    new Animated.Value(1),
-    new Animated.Value(1.18),
-    new Animated.Value(1),
-    new Animated.Value(0.72),
-  ]).current;
+  const audioWaveLevels = useRef(audioWaveRestingLevels.map(level => new Animated.Value(level))).current;
+  const thinkingPulse = useRef(new Animated.Value(0)).current;
 
   // Real-time clock
   const [clockStr, setClockStr] = useState('');
@@ -221,17 +220,28 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   }, [orbScale, orbGlow, waveScale, waveAlpha]);
 
   useEffect(() => {
+    const thinkingAnim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(thinkingPulse, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(thinkingPulse, { toValue: 0, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    );
+    thinkingAnim.start();
+    return () => thinkingAnim.stop();
+  }, [thinkingPulse]);
+
+  useEffect(() => {
     return () => {
       recognitionRef.current?.stop?.();
       recognitionRef.current = null;
+      speechResultsEnabledRef.current = false;
     };
   }, []);
 
   const resetAudioWave = useCallback((duration = 180) => {
-    const restingLevels = [0.72, 1, 1.18, 1, 0.72];
     audioWaveLevels.forEach((level, index) => {
       Animated.timing(level, {
-        toValue: restingLevels[index],
+        toValue: audioWaveRestingLevels[index],
         duration,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
@@ -241,14 +251,11 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
   const setAudioWaveEnergy = useCallback((energy: number, source: 'mic' | 'ai') => {
     const normalizedEnergy = Math.max(0, Math.min(1, energy));
-    const restingLevels = [0.72, 1, 1.18, 1, 0.72];
-    const multipliers = source === 'mic'
-      ? [0.7, 1.22, 1.62, 1.12, 0.66]
-      : [0.35, 0.78, 1.02, 0.72, 0.32];
+    const multipliers = source === 'mic' ? micWaveMultipliers : aiWaveMultipliers;
 
     audioWaveLevels.forEach((level, index) => {
       Animated.timing(level, {
-        toValue: restingLevels[index] + normalizedEnergy * multipliers[index],
+        toValue: audioWaveRestingLevels[index] + normalizedEnergy * multipliers[index],
         duration: source === 'mic' ? 72 : 92,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
@@ -458,9 +465,12 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
           recognition.lang = 'vi-VN';
           recognition.continuous = true;
           recognition.interimResults = true;
+          speechResultsEnabledRef.current = true;
           recordingBaseTranscriptRef.current = answerInput.trim();
           finalTranscriptRef.current = recordingBaseTranscriptRef.current;
           recognition.onresult = (event: any) => {
+            if (!speechResultsEnabledRef.current) return;
+
             const finalSegments: string[] = [];
             let interimTranscript = '';
 
@@ -490,11 +500,13 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
           };
           recognition.onerror = () => {
             recognitionRef.current = null;
+            speechResultsEnabledRef.current = false;
             setIsRecording(false);
             stopMicAudioMeter();
           };
           recognition.onend = () => {
             recognitionRef.current = null;
+            speechResultsEnabledRef.current = false;
             setIsRecording(false);
             stopMicAudioMeter();
           };
@@ -505,10 +517,12 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
         } catch (e) {
           console.warn(e);
           recognitionRef.current = null;
+          speechResultsEnabledRef.current = false;
           stopMicAudioMeter();
           setIsRecording(!isRecording);
         }
       } else {
+        speechResultsEnabledRef.current = false;
         recognitionRef.current?.stop?.();
         recognitionRef.current = null;
         stopMicAudioMeter();
@@ -519,6 +533,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
       }
     } else {
       if (isRecording && answerInput.trim()) {
+        speechResultsEnabledRef.current = false;
         stopMicAudioMeter();
         handleSubmitAnswer();
       } else {
@@ -541,6 +556,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     };
 
     setMessages(prev => [...prev, userMsg]);
+    speechResultsEnabledRef.current = false;
     setAnswerInput('');
     recordingBaseTranscriptRef.current = '';
     finalTranscriptRef.current = '';
@@ -576,6 +592,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
   // Latest AI Question for display on main stage
   const latestAiQuestion = messages.filter(m => m.role === 'ai').pop()?.content || 'Đang kết nối với Trợ lý phỏng vấn AI...';
+  const isQuestionPending = isLoadingQuestion || isSubmitting;
 
   return (
     <View style={styles.container}>
@@ -656,8 +673,42 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                     </View>
                     <Text style={styles.questionCardPhase}>Q{String(currentQuestionIndex).padStart(2, '0')} / {String(totalQuestions).padStart(2, '0')}</Text>
                   </View>
-                  {isLoadingQuestion ? (
-                    <Text style={styles.questionCardLoading}>Đang kết nối nhận câu hỏi từ AI...</Text>
+                  {isQuestionPending ? (
+                    <View style={styles.questionThinkingWrap}>
+                      <View style={styles.questionThinkingDots}>
+                        {[0, 1, 2].map(index => (
+                          <Animated.View
+                            key={index}
+                            style={[
+                              styles.questionThinkingDot,
+                              {
+                                opacity: thinkingPulse.interpolate({
+                                  inputRange: [0, 0.34, 0.67, 1],
+                                  outputRange: index === 0
+                                    ? [1, 0.45, 0.45, 1]
+                                    : index === 1
+                                    ? [0.45, 1, 0.45, 0.45]
+                                    : [0.45, 0.45, 1, 0.45],
+                                }),
+                                transform: [{
+                                  scale: thinkingPulse.interpolate({
+                                    inputRange: [0, 0.34, 0.67, 1],
+                                    outputRange: index === 0
+                                      ? [1.18, 0.82, 0.82, 1.18]
+                                      : index === 1
+                                      ? [0.82, 1.18, 0.82, 0.82]
+                                      : [0.82, 0.82, 1.18, 0.82],
+                                  }),
+                                }],
+                              },
+                            ]}
+                          />
+                        ))}
+                      </View>
+                      <Text style={styles.questionCardLoading}>
+                        {isSubmitting ? 'AI đang suy nghĩ và dựng câu hỏi tiếp theo...' : 'Đang kết nối nhận câu hỏi từ AI...'}
+                      </Text>
+                    </View>
                   ) : (
                     <Text style={styles.questionCardBody}>{latestAiQuestion}</Text>
                   )}
@@ -725,46 +776,18 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                     <LineIcon name={isRecording ? 'stop' : 'mic'} size={25} />
                   </Pressable>
                   <View style={styles.micVisualizer}>
-                    <Animated.View
-                      style={[
-                        styles.micBar,
-                        styles.micBarOne,
-                        styles.micBarActive,
-                        { transform: [{ scaleY: audioWaveLevels[0] }] },
-                      ]}
-                    />
-                    <Animated.View
-                      style={[
-                        styles.micBar,
-                        styles.micBarTwo,
-                        styles.micBarActive,
-                        { transform: [{ scaleY: audioWaveLevels[1] }] },
-                      ]}
-                    />
-                    <Animated.View
-                      style={[
-                        styles.micBar,
-                        styles.micBarThree,
-                        styles.micBarActive,
-                        { transform: [{ scaleY: audioWaveLevels[2] }] },
-                      ]}
-                    />
-                    <Animated.View
-                      style={[
-                        styles.micBar,
-                        styles.micBarTwo,
-                        styles.micBarActive,
-                        { transform: [{ scaleY: audioWaveLevels[3] }] },
-                      ]}
-                    />
-                    <Animated.View
-                      style={[
-                        styles.micBar,
-                        styles.micBarOne,
-                        styles.micBarActive,
-                        { transform: [{ scaleY: audioWaveLevels[4] }] },
-                      ]}
-                    />
+                    <View style={styles.micWaveBaseline} />
+                    {audioWaveLevels.map((level, index) => (
+                      <Animated.View
+                        key={index}
+                        style={[
+                          styles.micBar,
+                          index % 4 === 0 && styles.micBarSoft,
+                          index === 8 && styles.micBarCore,
+                          { transform: [{ scaleY: level }] },
+                        ]}
+                      />
+                    ))}
                   </View>
                 </View>
 
@@ -909,6 +932,7 @@ const styles = StyleSheet.create({
   /* ── Top Header Navigation ── */
   topHeader: {
     height: 72,
+    flexShrink: 0,
     backgroundColor: 'rgba(5, 10, 26, 0.64)',
     borderBottomWidth: 0,
     borderColor: 'rgba(152, 203, 255, 0.08)',
@@ -1013,6 +1037,9 @@ const styles = StyleSheet.create({
   /* ── Main Workspace ── */
   mainWorkspace: {
     flex: 1,
+    flexBasis: 0,
+    height: Platform.OS === 'web' ? ('calc(100dvh - 120px)' as any) : undefined,
+    maxHeight: Platform.OS === 'web' ? ('calc(100dvh - 120px)' as any) : undefined,
     minHeight: 0,
     flexDirection: 'row',
     overflow: 'hidden',
@@ -1200,6 +1227,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: 12,
   },
+  questionThinkingWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 10,
+  },
+  questionThinkingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  questionThinkingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#00A3FF',
+    shadowColor: '#00A3FF',
+    shadowOpacity: 0.9,
+    shadowRadius: 14,
+  },
   questionCardBody: {
     color: '#F1F5F9',
     fontSize: 17,
@@ -1265,33 +1313,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    height: 33,
-    marginTop: 8,
+    gap: 3,
+    width: 104,
+    height: 38,
+    marginTop: 10,
+    position: 'relative',
+  },
+  micWaveBaseline: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '50%',
+    height: 1,
+    backgroundColor: 'rgba(0, 163, 255, 0.28)',
+    shadowColor: '#00A3FF',
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
   },
   micBar: {
-    width: 4,
-    borderRadius: 4,
+    width: 3,
+    height: 13,
+    borderRadius: 3,
     backgroundColor: '#00A3FF',
     shadowColor: '#00A3FF',
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
+    shadowOpacity: 0.72,
+    shadowRadius: 10,
   },
-  micBarActive: {
-    shadowOpacity: 0.9,
-    shadowRadius: 12,
+  micBarSoft: {
+    opacity: 0.58,
   },
-  micBarOne: {
-    height: 13,
-    opacity: 0.5,
-  },
-  micBarTwo: {
-    height: 22,
-    opacity: 0.72,
-  },
-  micBarThree: {
-    height: 30,
+  micBarCore: {
+    width: 4,
+    height: 15,
     opacity: 1,
+    backgroundColor: '#98CBFF',
   },
   liveTranscriptHud: {
     width: '100%',
@@ -1418,7 +1473,9 @@ const styles = StyleSheet.create({
   },
   chatDrawer: {
     width: 322,
-    height: '100%',
+    flexShrink: 0,
+    height: Platform.OS === 'web' ? ('calc(100dvh - 120px)' as any) : '100%',
+    maxHeight: Platform.OS === 'web' ? ('calc(100dvh - 120px)' as any) : '100%',
     minHeight: 0,
     alignSelf: 'stretch',
     backgroundColor: 'rgba(5, 10, 26, 0.18)',
@@ -1477,6 +1534,7 @@ const styles = StyleSheet.create({
   },
   drawerScrollView: {
     flex: 1,
+    flexBasis: 0,
     minHeight: 0,
     maxHeight: '100%',
     ...(Platform.OS === 'web' ? {
@@ -1583,6 +1641,7 @@ const styles = StyleSheet.create({
   },
   footerBar: {
     height: 48,
+    flexShrink: 0,
     borderTopWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.08)',
     flexDirection: 'row',
