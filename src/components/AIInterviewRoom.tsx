@@ -582,7 +582,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
             {/* Drawer Header */}
             <View style={styles.drawerHeader}>
               <View style={styles.drawerTitleWrap}>
-                <LineIcon name="history" size={16} />
+                <LineIcon name="history" size={18} />
                 <Text style={styles.drawerTitle}>Lịch Sử Trao Đổi</Text>
               </View>
               <Text style={styles.drawerCountText}>{messages.length} tin nhắn</Text>
@@ -612,7 +612,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                       ]}
                     >
                       <View style={[styles.drawerRoleRow, !isAi && styles.drawerRoleRowUser]}>
-                        <LineIcon name={isAi ? 'ai' : 'user'} size={11} color={isAi ? '#98CBFF' : '#CBD5E1'} />
+                        <LineIcon name={isAi ? 'ai' : 'user'} size={12} color={isAi ? '#98CBFF' : '#CBD5E1'} />
                         <Text style={[styles.drawerRole, !isAi && styles.drawerRoleUser]}>{isAi ? 'INBLUE AI' : 'Thí sinh'}</Text>
                       </View>
                       <Text style={styles.drawerText}>{msg.content}</Text>
@@ -769,7 +769,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     overflow: 'hidden',
     paddingHorizontal: 50,
-    gap: 34,
+    gap: 30,
   },
   stageArea: {
     flex: 1,
@@ -1163,14 +1163,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   chatDrawer: {
-    width: 286,
+    width: 322,
     backgroundColor: 'rgba(5, 10, 26, 0.18)',
     borderLeftWidth: 0,
     borderColor: 'rgba(152, 203, 255, 0.08)',
     display: 'flex',
     flexDirection: 'column',
-    paddingTop: 10,
-    paddingBottom: 8,
+    paddingTop: 12,
+    paddingBottom: 10,
     ...(Platform.OS === 'web' ? {
       backdropFilter: 'blur(20px)',
       WebkitBackdropFilter: 'blur(20px)',
@@ -1187,7 +1187,7 @@ const styles = StyleSheet.create({
   drawerHeader: {
     paddingHorizontal: 0,
     paddingTop: 0,
-    paddingBottom: 12,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.12)',
     flexDirection: 'row',
@@ -1197,33 +1197,33 @@ const styles = StyleSheet.create({
   drawerTitleWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 9,
   },
   drawerTitle: {
     color: '#F1F5F9',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: 0.8,
   },
   drawerCountText: {
     color: '#98CBFF',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.2,
     backgroundColor: 'rgba(0, 163, 255, 0.14)',
     borderWidth: 1,
     borderColor: 'rgba(0, 163, 255, 0.22)',
     borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   drawerScrollView: {
     flex: 1,
   },
   drawerScrollContent: {
-    paddingTop: 16,
-    paddingBottom: 16,
-    gap: 16,
+    paddingTop: 18,
+    paddingBottom: 18,
+    gap: 18,
   },
   drawerBubbleRow: {
     width: '100%',
@@ -1236,9 +1236,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   drawerBubble: {
-    maxWidth: '92%',
+    maxWidth: '94%',
     borderRadius: 7,
-    padding: 11,
+    padding: 13,
   },
   drawerBubbleAi: {
     backgroundColor: 'rgba(20, 39, 67, 0.58)',
@@ -1253,15 +1253,15 @@ const styles = StyleSheet.create({
   drawerRoleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 7,
+    gap: 7,
+    marginBottom: 8,
   },
   drawerRoleRowUser: {
     justifyContent: 'flex-end',
   },
   drawerRole: {
     color: '#98CBFF',
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.8,
   },
@@ -1270,20 +1270,20 @@ const styles = StyleSheet.create({
   },
   drawerText: {
     color: '#FFFFFF',
-    fontSize: 11,
-    lineHeight: 17,
-    marginBottom: 7,
+    fontSize: 12,
+    lineHeight: 19,
+    marginBottom: 8,
   },
   drawerTime: {
     color: 'rgba(255, 255, 255, 0.5)',
-    fontSize: 9,
+    fontSize: 10,
     alignSelf: 'flex-end',
   },
   drawerTypingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingTop: 10,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderColor: 'rgba(152, 203, 255, 0.08)',
   },
@@ -1311,7 +1311,7 @@ const styles = StyleSheet.create({
   },
   drawerTypingText: {
     color: 'rgba(148, 163, 184, 0.7)',
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1.2,
   },
