@@ -319,12 +319,6 @@ function App() {
                 </View>
               </View>
 
-              {/* Clean Minimalist Credits Line */}
-              {isWide && (
-                <Text style={styles.creditsText}>
-                  CAPSTONE PROJECT • FPT UNIVERSITY HCM • SOFTWARE ENGINEERING • GVHD: LÂM HỮU KHÁNH PHƯƠNG
-                </Text>
-              )}
             </View>
 
             {/* ── Right Panel: Interaction Workspace ── */}
@@ -423,12 +417,16 @@ function App() {
           />
         </KeyboardAvoidingView>
 
-        {/* Mobile Credits */}
-        {!isWide && (
-          <Text style={styles.mobileCredits}>
-            CAPSTONE PROJECT • FPT UNIVERSITY HCM • SE • GVHD: LÂM HỮU KHÁNH PHƯƠNG
-          </Text>
-        )}
+        <View style={styles.footerBar}>
+          <View style={styles.footerMetaGroup}>
+            <Text style={styles.footerText}>FPT UNIVERSITY</Text>
+            <View style={styles.footerDivider} />
+            <Text style={styles.footerText}>SOFTWARE ENGINEERING</Text>
+            <View style={styles.footerDivider} />
+            <Text style={styles.footerText}>SUMMER 2026</Text>
+          </View>
+          <Text style={styles.footerText}>POWERED BY INBLUE PLATFORM</Text>
+        </View>
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -545,14 +543,6 @@ function createStyles(isWide: boolean) {
       fontWeight: '600',
       letterSpacing: 0.7,
     },
-    creditsText: {
-      color: 'rgba(190, 199, 212, 0.85)',
-      fontSize: isWide ? 14 : 12,
-      fontWeight: '800',
-      letterSpacing: 1.5,
-      zIndex: 1,
-    },
-
     /* ── Right Panel ── */
     rightPanel: {
       flex: isWide ? 0.5 : 1,
@@ -676,15 +666,36 @@ function createStyles(isWide: boolean) {
       letterSpacing: 0.7,
     },
 
-    /* ── Mobile Credits ── */
-    mobileCredits: {
-      color: 'rgba(190,199,212,0.4)',
-      fontSize: 10,
-      fontWeight: '500',
-      letterSpacing: 1.5,
-      textAlign: 'center',
-      paddingVertical: 10,
-      paddingHorizontal: 16,
+    footerBar: {
+      height: isWide ? 48 : 58,
+      borderTopWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.08)',
+      flexDirection: isWide ? 'row' : 'column',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: isWide ? 0 : 6,
+      paddingHorizontal: isWide ? 64 : 22,
+      paddingVertical: isWide ? 0 : 9,
+      backgroundColor: 'rgba(5, 10, 26, 0.55)',
+    },
+    footerMetaGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexWrap: 'wrap',
+      gap: isWide ? 13 : 9,
+    },
+    footerDivider: {
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: 'rgba(148, 163, 184, 0.38)',
+    },
+    footerText: {
+      color: 'rgba(148, 163, 184, 0.7)',
+      fontSize: isWide ? 11 : 9,
+      fontWeight: '800',
+      letterSpacing: isWide ? 2.4 : 1.5,
     },
   });
 }
