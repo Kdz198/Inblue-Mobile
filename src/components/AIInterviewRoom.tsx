@@ -163,6 +163,11 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const recognitionRef = useRef<any>(null);
   const recordingBaseTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
+  const micAudioContextRef = useRef<any>(null);
+  const micAudioSourceRef = useRef<any>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micWaveFrameRef = useRef<number | null>(null);
+  const aiWaveTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Pulse animation for central AI Avatar Orb
   const orbScale = useRef(new Animated.Value(1)).current;
@@ -222,70 +227,168 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     };
   }, []);
 
-  useEffect(() => {
-    const isVoiceActive = isRecording || isAiSpeaking;
-    const peakLevels = isRecording
-      ? [1.45, 2.05, 2.55, 1.95, 1.4]
-      : [1.15, 1.62, 1.9, 1.56, 1.12];
+  const resetAudioWave = useCallback((duration = 180) => {
     const restingLevels = [0.72, 1, 1.18, 1, 0.72];
+    audioWaveLevels.forEach((level, index) => {
+      Animated.timing(level, {
+        toValue: restingLevels[index],
+        duration,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [audioWaveLevels]);
 
-    if (!isVoiceActive) {
-      audioWaveLevels.forEach((level, index) => {
-        Animated.timing(level, {
-          toValue: restingLevels[index],
-          duration: 260,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }).start();
-      });
-      return undefined;
+  const setAudioWaveEnergy = useCallback((energy: number, source: 'mic' | 'ai') => {
+    const normalizedEnergy = Math.max(0, Math.min(1, energy));
+    const restingLevels = [0.72, 1, 1.18, 1, 0.72];
+    const multipliers = source === 'mic'
+      ? [0.7, 1.22, 1.62, 1.12, 0.66]
+      : [0.35, 0.78, 1.02, 0.72, 0.32];
+
+    audioWaveLevels.forEach((level, index) => {
+      Animated.timing(level, {
+        toValue: restingLevels[index] + normalizedEnergy * multipliers[index],
+        duration: source === 'mic' ? 72 : 92,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [audioWaveLevels]);
+
+  const clearAiWaveTimers = useCallback(() => {
+    aiWaveTimersRef.current.forEach(timer => clearTimeout(timer));
+    aiWaveTimersRef.current = [];
+  }, []);
+
+  const stopMicAudioMeter = useCallback(() => {
+    if (micWaveFrameRef.current !== null && Platform.OS === 'web') {
+      window.cancelAnimationFrame(micWaveFrameRef.current);
+      micWaveFrameRef.current = null;
     }
 
-    const waveLoops = audioWaveLevels.map((level, index) => {
-      const animation = Animated.loop(
-        Animated.sequence([
-          Animated.delay(index * (isRecording ? 62 : 92)),
-          Animated.timing(level, {
-            toValue: peakLevels[index],
-            duration: isRecording ? 210 : 310,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(level, {
-            toValue: restingLevels[index],
-            duration: isRecording ? 240 : 360,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      animation.start();
-      return animation;
-    });
+    micAudioSourceRef.current?.disconnect?.();
+    micAudioSourceRef.current = null;
 
+    micStreamRef.current?.getTracks().forEach(track => track.stop());
+    micStreamRef.current = null;
+
+    micAudioContextRef.current?.close?.();
+    micAudioContextRef.current = null;
+
+    resetAudioWave();
+  }, [resetAudioWave]);
+
+  const startMicAudioMeter = useCallback(async () => {
+    if (
+      Platform.OS !== 'web' ||
+      !('mediaDevices' in navigator) ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      return;
+    }
+
+    stopMicAudioMeter();
+
+    try {
+      const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextCtor) return;
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      const audioContext = new AudioContextCtor();
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.72;
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.fftSize);
+      micStreamRef.current = stream;
+      micAudioContextRef.current = audioContext;
+      micAudioSourceRef.current = source;
+
+      const updateMeter = () => {
+        analyser.getByteTimeDomainData(dataArray);
+
+        let sumSquares = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          const centeredSample = dataArray[i] - 128;
+          sumSquares += centeredSample * centeredSample;
+        }
+
+        const rms = Math.sqrt(sumSquares / dataArray.length) / 128;
+        const voiceEnergy = Math.max(0, Math.min(1, (rms - 0.018) * 9.5));
+        setAudioWaveEnergy(voiceEnergy, 'mic');
+        micWaveFrameRef.current = window.requestAnimationFrame(updateMeter);
+      };
+
+      updateMeter();
+    } catch (e) {
+      console.warn('Unable to start mic wave meter:', e);
+      stopMicAudioMeter();
+    }
+  }, [setAudioWaveEnergy, stopMicAudioMeter]);
+
+  const pulseAiSpeechWave = useCallback((seed = 0) => {
+    clearAiWaveTimers();
+    const boundaryEnergy = 0.34 + ((seed % 7) / 10);
+    setAudioWaveEnergy(boundaryEnergy, 'ai');
+    aiWaveTimersRef.current = [
+      setTimeout(() => resetAudioWave(140), 160),
+    ];
+  }, [clearAiWaveTimers, resetAudioWave, setAudioWaveEnergy]);
+
+  useEffect(() => {
     return () => {
-      waveLoops.forEach(animation => animation.stop());
+      clearAiWaveTimers();
+      stopMicAudioMeter();
     };
-  }, [audioWaveLevels, isAiSpeaking, isRecording]);
+  }, [clearAiWaveTimers, stopMicAudioMeter]);
 
   // Speak AI Question using Text-to-Speech (TTS)
   const speakText = useCallback((text: string) => {
     if (Platform.OS === 'web' && 'speechSynthesis' in window) {
       try {
+        clearAiWaveTimers();
+        resetAudioWave(120);
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'vi-VN';
         utterance.rate = 1.0;
-        utterance.onstart = () => setIsAiSpeaking(true);
-        utterance.onend = () => setIsAiSpeaking(false);
-        utterance.onerror = () => setIsAiSpeaking(false);
+        utterance.onstart = () => {
+          setIsAiSpeaking(true);
+          pulseAiSpeechWave(1);
+        };
+        utterance.onboundary = (event: any) => {
+          pulseAiSpeechWave(event.charIndex || 1);
+        };
+        utterance.onpause = () => resetAudioWave(160);
+        utterance.onresume = () => pulseAiSpeechWave(2);
+        utterance.onend = () => {
+          setIsAiSpeaking(false);
+          clearAiWaveTimers();
+          resetAudioWave();
+        };
+        utterance.onerror = () => {
+          setIsAiSpeaking(false);
+          clearAiWaveTimers();
+          resetAudioWave();
+        };
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.warn(e);
         setIsAiSpeaking(false);
+        clearAiWaveTimers();
+        resetAudioWave();
       }
     }
-  }, []);
+  }, [clearAiWaveTimers, pulseAiSpeechWave, resetAudioWave]);
 
   // Handle Response from API (Start or Submit)
   const handleApiResponse = useCallback((data: InterviewStartResponse) => {
@@ -388,22 +491,27 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
           recognition.onerror = () => {
             recognitionRef.current = null;
             setIsRecording(false);
+            stopMicAudioMeter();
           };
           recognition.onend = () => {
             recognitionRef.current = null;
             setIsRecording(false);
+            stopMicAudioMeter();
           };
           recognitionRef.current = recognition;
           recognition.start();
+          void startMicAudioMeter();
           setIsRecording(true);
         } catch (e) {
           console.warn(e);
           recognitionRef.current = null;
+          stopMicAudioMeter();
           setIsRecording(!isRecording);
         }
       } else {
         recognitionRef.current?.stop?.();
         recognitionRef.current = null;
+        stopMicAudioMeter();
         setIsRecording(false);
         if (answerInput.trim()) {
           handleSubmitAnswer();
@@ -411,6 +519,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
       }
     } else {
       if (isRecording && answerInput.trim()) {
+        stopMicAudioMeter();
         handleSubmitAnswer();
       } else {
         setIsRecording(!isRecording);
@@ -435,6 +544,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     setAnswerInput('');
     recordingBaseTranscriptRef.current = '';
     finalTranscriptRef.current = '';
+    stopMicAudioMeter();
     setIsRecording(false);
     setIsSubmitting(true);
 
