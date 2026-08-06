@@ -349,19 +349,19 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const pulseAiSpeechAura = useCallback(() => {
     aiSpeechAuraScale.stopAnimation();
     aiSpeechAuraOpacity.stopAnimation();
-    aiSpeechAuraScale.setValue(0.94);
-    aiSpeechAuraOpacity.setValue(0.42);
+    aiSpeechAuraScale.setValue(0.98);
+    aiSpeechAuraOpacity.setValue(0.2);
 
     Animated.parallel([
       Animated.timing(aiSpeechAuraScale, {
-        toValue: 1.26,
-        duration: 520,
+        toValue: 1.1,
+        duration: 420,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(aiSpeechAuraOpacity, {
-        toValue: 0.04,
-        duration: 520,
+        toValue: 0.06,
+        duration: 420,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
@@ -370,8 +370,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
   const setAiSpeechAuraEnergy = useCallback((energy: number) => {
     const normalizedEnergy = Math.max(0, Math.min(1, energy));
-    aiSpeechAuraScale.setValue(0.96 + normalizedEnergy * 0.34);
-    aiSpeechAuraOpacity.setValue(normalizedEnergy > 0.015 ? 0.08 + normalizedEnergy * 0.36 : 0);
+    aiSpeechAuraScale.setValue(0.99 + normalizedEnergy * 0.14);
+    aiSpeechAuraOpacity.setValue(normalizedEnergy > 0.018 ? 0.08 + normalizedEnergy * 0.22 : 0);
   }, [aiSpeechAuraOpacity, aiSpeechAuraScale]);
 
   useEffect(() => {
@@ -782,29 +782,15 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
                 <View style={[styles.aiHolographicNode, isKioskCompact && styles.aiHolographicNodeCompact]}>
                   {isAiSpeaking && (
-                    <>
-                      <Animated.View
-                        style={[
-                          styles.aiSpeechAura,
-                          {
-                            transform: [{ scale: aiSpeechAuraScale }],
-                            opacity: aiSpeechAuraOpacity,
-                          },
-                        ]}
-                      />
-                      <Animated.View
-                        style={[
-                          styles.aiSpeechAuraOuter,
-                          {
-                            transform: [{ scale: aiSpeechAuraScale }],
-                            opacity: aiSpeechAuraOpacity.interpolate({
-                              inputRange: [0, 0.42],
-                              outputRange: [0, 0.2],
-                            }),
-                          },
-                        ]}
-                      />
-                    </>
+                    <Animated.View
+                      style={[
+                        styles.aiSpeechAura,
+                        {
+                          transform: [{ scale: aiSpeechAuraScale }],
+                          opacity: aiSpeechAuraOpacity,
+                        },
+                      ]}
+                    />
                   )}
 
                   <Animated.View
@@ -883,9 +869,10 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                   <ScrollView
                     ref={transcriptScrollViewRef}
                     onContentSizeChange={() => transcriptScrollViewRef.current?.scrollToEnd({ animated: true })}
+                    nativeID="transcript-scroll"
                     style={styles.transcriptBody}
                     contentContainerStyle={styles.transcriptBodyContent}
-                    showsVerticalScrollIndicator={Platform.OS === 'web'}
+                    showsVerticalScrollIndicator={false}
                     nestedScrollEnabled
                   >
                     <Text style={styles.transcriptText}>
@@ -1186,26 +1173,15 @@ const styles = StyleSheet.create({
   },
   aiSpeechAura: {
     position: 'absolute',
-    width: 218,
-    height: 218,
-    borderRadius: 109,
+    width: 226,
+    height: 226,
+    borderRadius: 113,
     borderWidth: 1,
-    borderColor: 'rgba(152, 203, 255, 0.48)',
-    backgroundColor: 'rgba(0, 163, 255, 0.035)',
+    borderColor: 'rgba(152, 203, 255, 0.32)',
+    backgroundColor: 'rgba(0, 163, 255, 0.025)',
     shadowColor: '#98CBFF',
-    shadowOpacity: 0.34,
-    shadowRadius: 24,
-  },
-  aiSpeechAuraOuter: {
-    position: 'absolute',
-    width: 278,
-    height: 278,
-    borderRadius: 139,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 163, 255, 0.18)',
-    shadowColor: '#98CBFF',
-    shadowOpacity: 0.18,
-    shadowRadius: 28,
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
   },
   aiOrbHalo: {
     position: 'absolute',
@@ -1512,8 +1488,8 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? {
       overflowY: 'auto',
       overflowX: 'hidden',
-      scrollbarColor: 'rgba(0, 163, 255, 0.48) rgba(8, 18, 38, 0.18)',
-      scrollbarWidth: 'thin',
+      scrollbarWidth: 'none',
+      msOverflowStyle: 'none',
     } as any : {}),
   },
   transcriptBodyContent: {
