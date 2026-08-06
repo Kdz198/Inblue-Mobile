@@ -26,7 +26,6 @@ interface AIInterviewRoomProps {
 const iconStroke = '#98CBFF';
 const audioWaveRestingLevels = [0.55, 0.78, 1.05, 0.72, 1.25, 0.88, 1.42, 1.08, 1.62, 1.08, 1.42, 0.88, 1.25, 0.72, 1.05, 0.78, 0.55];
 const micWaveMultipliers = [0.34, 0.58, 0.92, 0.5, 1.2, 0.68, 1.42, 0.9, 1.68, 0.9, 1.42, 0.68, 1.2, 0.5, 0.92, 0.58, 0.34];
-const aiWaveMultipliers = [0.18, 0.34, 0.52, 0.28, 0.66, 0.42, 0.78, 0.54, 0.88, 0.54, 0.78, 0.42, 0.66, 0.28, 0.52, 0.34, 0.18];
 
 function LineIcon({
   name,
@@ -171,7 +170,6 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const micAudioSourceRef = useRef<any>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const micWaveFrameRef = useRef<number | null>(null);
-  const aiWaveTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   // Pulse animation for central AI Avatar Orb
   const orbScale = useRef(new Animated.Value(1)).current;
@@ -249,24 +247,18 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     });
   }, [audioWaveLevels]);
 
-  const setAudioWaveEnergy = useCallback((energy: number, source: 'mic' | 'ai') => {
+  const setAudioWaveEnergy = useCallback((energy: number) => {
     const normalizedEnergy = Math.max(0, Math.min(1, energy));
-    const multipliers = source === 'mic' ? micWaveMultipliers : aiWaveMultipliers;
 
     audioWaveLevels.forEach((level, index) => {
       Animated.timing(level, {
-        toValue: audioWaveRestingLevels[index] + normalizedEnergy * multipliers[index],
-        duration: source === 'mic' ? 72 : 92,
+        toValue: audioWaveRestingLevels[index] + normalizedEnergy * micWaveMultipliers[index],
+        duration: 72,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }).start();
     });
   }, [audioWaveLevels]);
-
-  const clearAiWaveTimers = useCallback(() => {
-    aiWaveTimersRef.current.forEach(timer => clearTimeout(timer));
-    aiWaveTimersRef.current = [];
-  }, []);
 
   const stopMicAudioMeter = useCallback(() => {
     if (micWaveFrameRef.current !== null && Platform.OS === 'web') {
@@ -331,7 +323,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
         const rms = Math.sqrt(sumSquares / dataArray.length) / 128;
         const voiceEnergy = Math.max(0, Math.min(1, (rms - 0.018) * 9.5));
-        setAudioWaveEnergy(voiceEnergy, 'mic');
+        setAudioWaveEnergy(voiceEnergy);
         micWaveFrameRef.current = window.requestAnimationFrame(updateMeter);
       };
 
@@ -342,60 +334,40 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     }
   }, [setAudioWaveEnergy, stopMicAudioMeter]);
 
-  const pulseAiSpeechWave = useCallback((seed = 0) => {
-    clearAiWaveTimers();
-    const boundaryEnergy = 0.34 + ((seed % 7) / 10);
-    setAudioWaveEnergy(boundaryEnergy, 'ai');
-    aiWaveTimersRef.current = [
-      setTimeout(() => resetAudioWave(140), 160),
-    ];
-  }, [clearAiWaveTimers, resetAudioWave, setAudioWaveEnergy]);
-
   useEffect(() => {
     return () => {
-      clearAiWaveTimers();
       stopMicAudioMeter();
     };
-  }, [clearAiWaveTimers, stopMicAudioMeter]);
+  }, [stopMicAudioMeter]);
 
   // Speak AI Question using Text-to-Speech (TTS)
   const speakText = useCallback((text: string) => {
     if (Platform.OS === 'web' && 'speechSynthesis' in window) {
       try {
-        clearAiWaveTimers();
         resetAudioWave(120);
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'vi-VN';
         utterance.rate = 1.0;
-        utterance.onstart = () => {
-          setIsAiSpeaking(true);
-          pulseAiSpeechWave(1);
-        };
-        utterance.onboundary = (event: any) => {
-          pulseAiSpeechWave(event.charIndex || 1);
-        };
-        utterance.onpause = () => resetAudioWave(160);
-        utterance.onresume = () => pulseAiSpeechWave(2);
+        utterance.onstart = () => setIsAiSpeaking(true);
+        utterance.onpause = () => setIsAiSpeaking(false);
+        utterance.onresume = () => setIsAiSpeaking(true);
         utterance.onend = () => {
           setIsAiSpeaking(false);
-          clearAiWaveTimers();
           resetAudioWave();
         };
         utterance.onerror = () => {
           setIsAiSpeaking(false);
-          clearAiWaveTimers();
           resetAudioWave();
         };
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.warn(e);
         setIsAiSpeaking(false);
-        clearAiWaveTimers();
         resetAudioWave();
       }
     }
-  }, [clearAiWaveTimers, pulseAiSpeechWave, resetAudioWave]);
+  }, [resetAudioWave]);
 
   // Handle Response from API (Start or Submit)
   const handleApiResponse = useCallback((data: InterviewStartResponse) => {
@@ -663,8 +635,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
             /* Active Interview Stage */
             <View style={[styles.activeStageWrapper, isKioskCompact && styles.activeStageWrapperCompact]}>
               <View style={[styles.interviewFocusStack, isKioskCompact && styles.interviewFocusStackCompact]}>
-                <View style={styles.currentQuestionGlassCard}>
-                  <View style={styles.questionCardHeader}>
+                <View style={[styles.currentQuestionGlassCard, isQuestionPending && styles.currentQuestionThinkingCard]}>
+                  <View style={[styles.questionCardHeader, isQuestionPending && styles.questionCardHeaderThinking]}>
                     <View style={styles.questionCardBadgeWrap}>
                       <View style={styles.questionCardRule} />
                       <LineIcon name="question" size={14} color="#00A3FF" />
@@ -705,9 +677,6 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                           />
                         ))}
                       </View>
-                      <Text style={styles.questionCardLoading}>
-                        {isSubmitting ? 'AI đang suy nghĩ và dựng câu hỏi tiếp theo...' : 'Đang kết nối nhận câu hỏi từ AI...'}
-                      </Text>
                     </View>
                   ) : (
                     <Text style={styles.questionCardBody}>{latestAiQuestion}</Text>
@@ -716,6 +685,29 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                 </View>
 
                 <View style={[styles.aiHolographicNode, isKioskCompact && styles.aiHolographicNodeCompact]}>
+                  {isAiSpeaking && (
+                    <>
+                      <Animated.View
+                        style={[
+                          styles.aiSpeechAura,
+                          {
+                            transform: [{ scale: waveScale }],
+                            opacity: waveAlpha,
+                          },
+                        ]}
+                      />
+                      <Animated.View
+                        style={[
+                          styles.aiSpeechAuraOuter,
+                          {
+                            transform: [{ scale: orbScale }],
+                            opacity: orbGlow,
+                          },
+                        ]}
+                      />
+                    </>
+                  )}
+
                   <Animated.View
                     style={[
                       styles.aiWaveRing,
@@ -740,24 +732,6 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                     <View style={styles.aiOrbInnerAura}>
                       <LineIcon name="bot" size={72} color="#98CBFF" />
                     </View>
-                  </View>
-
-                  <View style={styles.aiStatusPill}>
-                    <View
-                      style={[
-                        styles.aiStatusDot,
-                        { backgroundColor: isRecording ? '#EF4444' : isAiSpeaking ? '#00A3FF' : '#98CBFF' },
-                      ]}
-                    />
-                    <Text style={styles.aiStatusText}>
-                      {isSubmitting
-                        ? 'AI đang phân tích...'
-                        : isRecording
-                        ? 'Đang thu âm giọng nói...'
-                        : isAiSpeaking
-                        ? 'AI đang đọc câu hỏi...'
-                        : 'Đang lắng nghe...'}
-                    </Text>
                   </View>
                 </View>
               </View>
@@ -1102,7 +1076,29 @@ const styles = StyleSheet.create({
     height: 264,
     borderRadius: 132,
     borderWidth: 1,
-    borderColor: 'rgba(0, 163, 255, 0.36)',
+    borderColor: 'rgba(0, 163, 255, 0.16)',
+  },
+  aiSpeechAura: {
+    position: 'absolute',
+    width: 246,
+    height: 246,
+    borderRadius: 123,
+    borderWidth: 2,
+    borderColor: 'rgba(0, 163, 255, 0.62)',
+    shadowColor: '#00A3FF',
+    shadowOpacity: 0.62,
+    shadowRadius: 28,
+  },
+  aiSpeechAuraOuter: {
+    position: 'absolute',
+    width: 306,
+    height: 306,
+    borderRadius: 153,
+    borderWidth: 1,
+    borderColor: 'rgba(152, 203, 255, 0.26)',
+    shadowColor: '#98CBFF',
+    shadowOpacity: 0.32,
+    shadowRadius: 36,
   },
   aiOrbHalo: {
     position: 'absolute',
@@ -1134,37 +1130,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  aiStatusPill: {
-    position: 'absolute',
-    bottom: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(10, 21, 43, 0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 163, 255, 0.34)',
-    borderRadius: 999,
-    paddingHorizontal: 15,
-    paddingVertical: 7,
-    shadowColor: '#000',
-    shadowOpacity: 0.45,
-    shadowRadius: 22,
-    ...(Platform.OS === 'web' ? {
-      backdropFilter: 'blur(12px)',
-      WebkitBackdropFilter: 'blur(12px)',
-    } as any : {}),
-  },
-  aiStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  aiStatusText: {
-    color: '#98CBFF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-
   /* ── Current Question Glass Card ── */
   currentQuestionGlassCard: {
     width: '100%',
@@ -1188,6 +1153,13 @@ const styles = StyleSheet.create({
       WebkitBackdropFilter: 'blur(24px)',
     } as any : {}),
   },
+  currentQuestionThinkingCard: {
+    maxWidth: 430,
+    paddingHorizontal: 24,
+    paddingTop: 15,
+    paddingBottom: 17,
+    marginBottom: 22,
+  },
   questionCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1195,6 +1167,9 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 11,
     width: '100%',
+  },
+  questionCardHeaderThinking: {
+    marginBottom: 5,
   },
   questionCardBadge: {
     color: '#00A3FF',
@@ -1221,17 +1196,11 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(0, 163, 255, 0.32)',
   },
-  questionCardLoading: {
-    color: '#98CBFF',
-    fontSize: 16,
-    textAlign: 'center',
-    paddingVertical: 12,
-  },
   questionThinkingWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    gap: 10,
+    paddingTop: 4,
+    paddingBottom: 2,
   },
   questionThinkingDots: {
     flexDirection: 'row',
@@ -1240,9 +1209,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   questionThinkingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
     backgroundColor: '#00A3FF',
     shadowColor: '#00A3FF',
     shadowOpacity: 0.9,
@@ -1287,6 +1256,7 @@ const styles = StyleSheet.create({
   micControlWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+    transform: [{ translateY: -8 }],
   },
   micOrbButton: {
     width: 52,
@@ -1316,7 +1286,7 @@ const styles = StyleSheet.create({
     gap: 3,
     width: 104,
     height: 38,
-    marginTop: 10,
+    marginTop: 18,
     position: 'relative',
   },
   micWaveBaseline: {
