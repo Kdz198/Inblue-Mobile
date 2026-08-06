@@ -882,7 +882,6 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
                         ? '"Đang lắng nghe câu trả lời của bạn..."'
                         : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
                     </Text>
-                    {isRecording && <View style={styles.transcriptCursor} />}
                   </ScrollView>
                   <View style={styles.transcriptFooter}>
                     <Text style={styles.transcriptState}>{isRecording ? 'LISTENING...' : 'VOICE READY'}</Text>
@@ -1510,14 +1509,6 @@ const styles = StyleSheet.create({
       overflowWrap: 'anywhere',
       wordBreak: 'break-word',
     } as any : {}),
-  },
-  transcriptCursor: {
-    width: 5,
-    height: 18,
-    marginTop: 2,
-    marginLeft: 4,
-    backgroundColor: '#00A3FF',
-    borderRadius: 2,
   },
   transcriptFooter: {
     flexDirection: 'row',
