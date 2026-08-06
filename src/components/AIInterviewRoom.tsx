@@ -160,6 +160,9 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const recordingBaseTranscriptRef = useRef('');
+  const finalTranscriptRef = useRef('');
 
   // Pulse animation for central AI Avatar Orb
   const orbScale = useRef(new Animated.Value(1)).current;
@@ -204,6 +207,13 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     orbAnim.start();
     return () => orbAnim.stop();
   }, [orbScale, orbGlow, waveScale, waveAlpha]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop?.();
+      recognitionRef.current = null;
+    };
+  }, []);
 
   // Speak AI Question using Text-to-Speech (TTS)
   const speakText = useCallback((text: string) => {
@@ -290,22 +300,57 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
         try {
           const recognition = new SpeechRec();
           recognition.lang = 'vi-VN';
+          recognition.continuous = true;
           recognition.interimResults = true;
+          recordingBaseTranscriptRef.current = answerInput.trim();
+          finalTranscriptRef.current = recordingBaseTranscriptRef.current;
           recognition.onresult = (event: any) => {
-            let transcript = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-              transcript += event.results[i][0].transcript;
+            const finalSegments: string[] = [];
+            let interimTranscript = '';
+
+            for (let i = 0; i < event.results.length; i++) {
+              const transcript = event.results[i][0].transcript;
+              if (event.results[i].isFinal) {
+                finalSegments.push(transcript);
+              } else {
+                interimTranscript += transcript;
+              }
             }
-            setAnswerInput(prev => (prev.trim() ? prev.trim() + ' ' + transcript : transcript));
+
+            const committedTranscript = [recordingBaseTranscriptRef.current, ...finalSegments]
+              .filter(Boolean)
+              .join(' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+
+            finalTranscriptRef.current = committedTranscript;
+            setAnswerInput(
+              [committedTranscript, interimTranscript]
+                .filter(Boolean)
+                .join(' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+            );
           };
-          recognition.onend = () => setIsRecording(false);
+          recognition.onerror = () => {
+            recognitionRef.current = null;
+            setIsRecording(false);
+          };
+          recognition.onend = () => {
+            recognitionRef.current = null;
+            setIsRecording(false);
+          };
+          recognitionRef.current = recognition;
           recognition.start();
           setIsRecording(true);
         } catch (e) {
           console.warn(e);
+          recognitionRef.current = null;
           setIsRecording(!isRecording);
         }
       } else {
+        recognitionRef.current?.stop?.();
+        recognitionRef.current = null;
         setIsRecording(false);
         if (answerInput.trim()) {
           handleSubmitAnswer();
@@ -335,6 +380,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
     setMessages(prev => [...prev, userMsg]);
     setAnswerInput('');
+    recordingBaseTranscriptRef.current = '';
+    finalTranscriptRef.current = '';
     setIsRecording(false);
     setIsSubmitting(true);
 
@@ -594,6 +641,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
               onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
               style={styles.drawerScrollView}
               contentContainerStyle={styles.drawerScrollContent}
+              showsVerticalScrollIndicator={Platform.OS === 'web'}
+              nestedScrollEnabled
             >
               {messages.map((msg, index) => {
                 const isAi = msg.role === 'ai';
@@ -766,6 +815,7 @@ const styles = StyleSheet.create({
   /* ── Main Workspace ── */
   mainWorkspace: {
     flex: 1,
+    minHeight: 0,
     flexDirection: 'row',
     overflow: 'hidden',
     paddingHorizontal: 50,
@@ -773,6 +823,7 @@ const styles = StyleSheet.create({
   },
   stageArea: {
     flex: 1,
+    minHeight: 0,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
@@ -789,6 +840,7 @@ const styles = StyleSheet.create({
   /* ── Central Hologram Node & Orb ── */
   activeStageWrapper: {
     flex: 1,
+    minHeight: 0,
     width: '100%',
     maxWidth: 715,
     alignItems: 'center',
@@ -1164,11 +1216,15 @@ const styles = StyleSheet.create({
   },
   chatDrawer: {
     width: 322,
+    height: '100%',
+    minHeight: 0,
+    alignSelf: 'stretch',
     backgroundColor: 'rgba(5, 10, 26, 0.18)',
     borderLeftWidth: 0,
     borderColor: 'rgba(152, 203, 255, 0.08)',
     display: 'flex',
     flexDirection: 'column',
+    overflow: 'hidden',
     paddingTop: 12,
     paddingBottom: 10,
     ...(Platform.OS === 'web' ? {
@@ -1219,6 +1275,14 @@ const styles = StyleSheet.create({
   },
   drawerScrollView: {
     flex: 1,
+    minHeight: 0,
+    maxHeight: '100%',
+    ...(Platform.OS === 'web' ? {
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      scrollbarColor: 'rgba(0, 163, 255, 0.62) rgba(8, 18, 38, 0.28)',
+      scrollbarWidth: 'thin',
+    } as any : {}),
   },
   drawerScrollContent: {
     paddingTop: 18,
