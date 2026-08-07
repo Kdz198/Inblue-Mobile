@@ -24,6 +24,14 @@ import {
 
 const PIN_LENGTH = 6;
 
+const KIOSK_INIT_STEPS = [
+  'Xác thực mã kiosk',
+  'Khởi tạo phiên phỏng vấn',
+  'Đồng bộ hồ sơ ứng viên',
+  'Tải danh sách giọng AI',
+  'Chuẩn bị phòng phỏng vấn',
+];
+
 type AppScreenState = 'PIN_ENTRY' | 'VOICE_SELECT' | 'AI_ROOM';
 
 const C = {
@@ -229,6 +237,8 @@ function App() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const previewAudioRef = useRef<any>(null);
+  const initPulse = useRef(new Animated.Value(0)).current;
+  const [initStepIndex, setInitStepIndex] = useState(0);
 
   const loadVoices = useCallback(async () => {
     setIsLoadingVoices(true);
@@ -319,6 +329,42 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!isVerifying) {
+      setInitStepIndex(0);
+      initPulse.stopAnimation();
+      initPulse.setValue(0);
+      return;
+    }
+
+    const stepTimer = setInterval(() => {
+      setInitStepIndex(prev => (prev + 1) % KIOSK_INIT_STEPS.length);
+    }, 1150);
+
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(initPulse, {
+          toValue: 1,
+          duration: 1150,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(initPulse, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    pulseLoop.start();
+
+    return () => {
+      clearInterval(stepTimer);
+      pulseLoop.stop();
+    };
+  }, [initPulse, isVerifying]);
+
+  useEffect(() => {
     return () => {
       previewAudioRef.current?.pause?.();
       previewAudioRef.current = null;
@@ -337,6 +383,16 @@ function App() {
 
   const safeVoices = Array.isArray(voices) ? voices : [];
   const styles = useMemo(() => createStyles(isWide), [isWide]);
+  const activeInitStep = KIOSK_INIT_STEPS[initStepIndex % KIOSK_INIT_STEPS.length];
+  const initProgress = `${Math.min(94, 22 + initStepIndex * 18)}%`;
+  const initPulseScale = initPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.82, 1.45],
+  });
+  const initPulseOpacity = initPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.5, 0],
+  });
 
   // Render Full Screen AI Room when in AI_ROOM state
   if (screenState === 'AI_ROOM') {
@@ -507,64 +563,106 @@ function App() {
                   {/* Material Lock Open Icon */}
                   <LockOpenIcon />
 
-                  <Text style={styles.instruction}>
-                    Nhập mã PIN 6 số từ lịch hẹn của bạn để bắt đầu.
-                  </Text>
-
-                  {/* 6 Circular PIN Slots */}
-                  <View style={styles.pinRow}>
-                    {Array.from({ length: PIN_LENGTH }).map((_, idx) => {
-                      const filled = idx < pin.length;
-                      return (
-                        <View
-                          key={idx}
+                  {isVerifying ? (
+                    <View style={styles.initLoaderBox}>
+                      <View style={styles.initOrbWrap}>
+                        <Animated.View
                           style={[
-                            styles.pinSlot,
-                            filled && styles.pinSlotFilled,
-                            !!authError && styles.pinSlotError,
+                            styles.initOrbPulse,
+                            {
+                              opacity: initPulseOpacity,
+                              transform: [{ scale: initPulseScale }],
+                            },
                           ]}
                         />
-                      );
-                    })}
-                  </View>
+                        <View style={styles.initOrbCore}>
+                          <View style={styles.initOrbDot} />
+                          <Text style={styles.initOrbText}>AI</Text>
+                        </View>
+                      </View>
 
-                  {/* Verifying Spinner / Error Label */}
-                  {isVerifying && (
-                    <Text style={styles.verifyingText}>Đang kết nối xác thực Kiosk...</Text>
-                  )}
-                  {authError && (
-                    <Text style={styles.errorText}>{authError}</Text>
-                  )}
+                      <Text style={styles.initTitle}>Đang thiết lập phòng phỏng vấn</Text>
+                      <View style={styles.initStepPill}>
+                        <View style={styles.initStepDot} />
+                        <Text style={styles.initStepText}>{activeInitStep}</Text>
+                      </View>
 
-                  {/* On-Screen Glass Touch Numpad Keypad (0ms Instant Touch Response) */}
-                  <View style={styles.keypad}>
-                    {['1','2','3','4','5','6','7','8','9','AC','0','DEL'].map(k => {
-                      const isAction = k === 'AC' || k === 'DEL';
-                      return (
-                        <Pressable
-                          key={k}
-                          delayPressIn={0}
-                          onPress={() => pressKey(k)}
-                          style={({ pressed }) => [
-                            styles.key,
-                            pressed && styles.keyPressed,
-                          ]}
-                        >
-                          {k === 'DEL' && Platform.OS === 'web' ? (
-                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bec7d4" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path>
-                              <line x1="18" y1="9" x2="12" y2="15"></line>
-                              <line x1="12" y1="9" x2="18" y2="15"></line>
-                            </svg>
-                          ) : (
-                            <Text style={[styles.keyText, isAction && styles.keyActionText]}>
-                              {k === 'DEL' ? '⌫' : k}
-                            </Text>
-                          )}
-                        </Pressable>
-                      );
-                    })}
-                  </View>
+                      <View style={styles.initProgressTrack}>
+                        <View style={[styles.initProgressFill, { width: initProgress as any }]} />
+                      </View>
+
+                      <View style={styles.initChecklist}>
+                        {KIOSK_INIT_STEPS.slice(0, 4).map((step, index) => {
+                          const active = index === initStepIndex % KIOSK_INIT_STEPS.length;
+                          const done = index < initStepIndex % KIOSK_INIT_STEPS.length;
+
+                          return (
+                            <View key={step} style={styles.initChecklistRow}>
+                              <View style={[styles.initCheckDot, done && styles.initCheckDotDone, active && styles.initCheckDotActive]} />
+                              <Text style={[styles.initCheckText, active && styles.initCheckTextActive]}>{step}</Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.instruction}>
+                        Nhập mã PIN 6 số từ lịch hẹn của bạn để bắt đầu.
+                      </Text>
+
+                      {/* 6 Circular PIN Slots */}
+                      <View style={styles.pinRow}>
+                        {Array.from({ length: PIN_LENGTH }).map((_, idx) => {
+                          const filled = idx < pin.length;
+                          return (
+                            <View
+                              key={idx}
+                              style={[
+                                styles.pinSlot,
+                                filled && styles.pinSlotFilled,
+                                !!authError && styles.pinSlotError,
+                              ]}
+                            />
+                          );
+                        })}
+                      </View>
+
+                      {authError && (
+                        <Text style={styles.errorText}>{authError}</Text>
+                      )}
+
+                      {/* On-Screen Glass Touch Numpad Keypad (0ms Instant Touch Response) */}
+                      <View style={styles.keypad}>
+                        {['1','2','3','4','5','6','7','8','9','AC','0','DEL'].map(k => {
+                          const isAction = k === 'AC' || k === 'DEL';
+                          return (
+                            <Pressable
+                              key={k}
+                              delayPressIn={0}
+                              onPress={() => pressKey(k)}
+                              style={({ pressed }) => [
+                                styles.key,
+                                pressed && styles.keyPressed,
+                              ]}
+                            >
+                              {k === 'DEL' && Platform.OS === 'web' ? (
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#bec7d4" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"></path>
+                                  <line x1="18" y1="9" x2="12" y2="15"></line>
+                                  <line x1="12" y1="9" x2="18" y2="15"></line>
+                                </svg>
+                              ) : (
+                                <Text style={[styles.keyText, isAction && styles.keyActionText]}>
+                                  {k === 'DEL' ? '⌫' : k}
+                                </Text>
+                              )}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
                   </View>
                 )}
               </View>
@@ -1017,6 +1115,158 @@ function createStyles(isWide: boolean) {
       fontSize: 14,
       fontWeight: '600',
       marginBottom: 24,
+    },
+    initLoaderBox: {
+      width: '100%',
+      maxWidth: isWide ? 440 : 340,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.16)',
+      borderRadius: 28,
+      backgroundColor: 'rgba(5, 10, 26, 0.42)',
+      paddingHorizontal: isWide ? 34 : 24,
+      paddingVertical: isWide ? 34 : 28,
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.24,
+      shadowRadius: 28,
+      ...(Platform.OS === 'web' ? {
+        backdropFilter: 'blur(22px)',
+        WebkitBackdropFilter: 'blur(22px)',
+      } as any : {}),
+    },
+    initOrbWrap: {
+      width: 106,
+      height: 106,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 20,
+    },
+    initOrbPulse: {
+      position: 'absolute',
+      width: 88,
+      height: 88,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(0, 163, 255, 0.7)',
+      backgroundColor: 'rgba(0, 163, 255, 0.12)',
+    },
+    initOrbCore: {
+      width: 78,
+      height: 78,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1.5,
+      borderColor: 'rgba(152, 203, 255, 0.44)',
+      backgroundColor: 'rgba(18, 34, 58, 0.86)',
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.42,
+      shadowRadius: 24,
+    },
+    initOrbDot: {
+      position: 'absolute',
+      top: 17,
+      right: 19,
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      backgroundColor: '#10B981',
+      shadowColor: '#10B981',
+      shadowOpacity: 0.7,
+      shadowRadius: 10,
+    },
+    initOrbText: {
+      color: C.primary,
+      fontSize: 22,
+      fontWeight: '900',
+      letterSpacing: 1.4,
+    },
+    initTitle: {
+      color: C.onSurface,
+      fontSize: isWide ? 20 : 17,
+      fontWeight: '900',
+      textAlign: 'center',
+      marginBottom: 14,
+    },
+    initStepPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 9,
+      borderWidth: 1,
+      borderColor: 'rgba(0, 163, 255, 0.28)',
+      borderRadius: 999,
+      backgroundColor: 'rgba(0, 163, 255, 0.1)',
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+      marginBottom: 18,
+    },
+    initStepDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 999,
+      backgroundColor: C.primaryDeep,
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.8,
+      shadowRadius: 8,
+    },
+    initStepText: {
+      color: C.primary,
+      fontSize: 12,
+      fontWeight: '900',
+      letterSpacing: 0.7,
+      textTransform: 'uppercase',
+    },
+    initProgressTrack: {
+      width: '100%',
+      height: 7,
+      borderRadius: 999,
+      overflow: 'hidden',
+      backgroundColor: 'rgba(152, 203, 255, 0.1)',
+      marginBottom: 20,
+    },
+    initProgressFill: {
+      height: '100%',
+      borderRadius: 999,
+      backgroundColor: C.primaryDeep,
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.55,
+      shadowRadius: 12,
+    },
+    initChecklist: {
+      width: '100%',
+      gap: 10,
+    },
+    initChecklistRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    initCheckDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.28)',
+      backgroundColor: 'rgba(152, 203, 255, 0.08)',
+    },
+    initCheckDotDone: {
+      borderColor: '#10B981',
+      backgroundColor: '#10B981',
+    },
+    initCheckDotActive: {
+      borderColor: C.primaryDeep,
+      backgroundColor: C.primaryDeep,
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.8,
+      shadowRadius: 8,
+    },
+    initCheckText: {
+      color: 'rgba(190, 199, 212, 0.6)',
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    initCheckTextActive: {
+      color: C.onSurface,
     },
     errorText: {
       color: '#EF4444',
