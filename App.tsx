@@ -486,12 +486,20 @@ function App() {
     );
 
     const spinLoop = Animated.loop(
-      Animated.timing(initSpin, {
-        toValue: 1,
-        duration: 1400,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
+      Animated.sequence([
+        Animated.timing(initSpin, {
+          toValue: 1,
+          duration: 2400,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.timing(initSpin, {
+          toValue: 0,
+          duration: 0,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ]),
     );
 
     pulseLoop.start();
