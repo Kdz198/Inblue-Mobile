@@ -394,14 +394,20 @@ function App() {
       const data = new Uint8Array(analyser.frequencyBinCount);
       const draw = () => {
         analyser.getByteFrequencyData(data);
+        let frameTotal = 0;
+        for (let i = 0; i < data.length; i += 1) frameTotal += data[i];
+        const frameEnergy = frameTotal / Math.max(1, data.length) / 255;
+        const t = audio.currentTime || 0;
 
         voicePreviewWaveLevels.forEach((level, index) => {
           const start = Math.floor((index / voicePreviewWaveLevels.length) * data.length);
           const end = Math.max(start + 1, Math.floor(((index + 1) / voicePreviewWaveLevels.length) * data.length));
           let total = 0;
           for (let i = start; i < end; i += 1) total += data[i];
-          const energy = total / Math.max(1, end - start) / 255;
-          level.setValue(0.24 + energy * 1.36);
+          const analysedEnergy = total / Math.max(1, end - start) / 255;
+          const fallbackEnergy = 0.34 + Math.abs(Math.sin(t * 6.2 + index * 0.84)) * 0.86;
+          const energy = frameEnergy > 0.015 ? 0.24 + analysedEnergy * 1.5 : fallbackEnergy;
+          level.setValue(energy);
         });
 
         previewWaveFrameRef.current = requestAnimationFrame(draw);
