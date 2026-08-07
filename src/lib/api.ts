@@ -52,6 +52,26 @@ export function resolveApiAssetUrl(path: string): string {
   return `${BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+function normalizeVoiceOptions(payload: unknown): VoiceOption[] {
+  if (Array.isArray(payload)) return payload as VoiceOption[];
+
+  if (payload && typeof payload === 'object') {
+    const data = payload as {
+      voices?: unknown;
+      data?: unknown;
+      result?: unknown;
+      content?: unknown;
+    };
+
+    if (Array.isArray(data.voices)) return data.voices as VoiceOption[];
+    if (Array.isArray(data.data)) return data.data as VoiceOption[];
+    if (Array.isArray(data.result)) return data.result as VoiceOption[];
+    if (Array.isArray(data.content)) return data.content as VoiceOption[];
+  }
+
+  return [];
+}
+
 // Fetch helper for Kiosk API endpoints
 export async function enterKioskApi(sessionKey: string): Promise<KioskEnterDtoResponse> {
   const controller = new AbortController();
@@ -199,7 +219,7 @@ export async function getAvailableVoicesApi(): Promise<VoiceOption[]> {
       throw new Error(`Tải danh sách giọng đọc AI thất bại (${response.status})`);
     }
 
-    return await response.json();
+    return normalizeVoiceOptions(await response.json());
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {

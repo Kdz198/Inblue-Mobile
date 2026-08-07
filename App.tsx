@@ -335,6 +335,7 @@ function App() {
     setScreenState('PIN_ENTRY');
   };
 
+  const safeVoices = Array.isArray(voices) ? voices : [];
   const styles = useMemo(() => createStyles(isWide), [isWide]);
 
   // Render Full Screen AI Room when in AI_ROOM state
@@ -345,7 +346,7 @@ function App() {
         <AIInterviewRoom
           sessionKey={aiSessionKey}
           initialVoiceId={selectedVoiceId}
-          voices={voices}
+          voices={safeVoices}
           onVoiceChange={setSelectedVoiceId}
           onFinish={handleFinishAIRoom}
         />
@@ -428,7 +429,7 @@ function App() {
                       </View>
                     ) : (
                       <View style={styles.voiceGrid}>
-                        {voices.map(voice => {
+                        {safeVoices.map(voice => {
                           const selected = selectedVoiceId === voice.id;
                           const previewing = previewingVoiceId === voice.id;
 
