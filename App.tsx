@@ -24,12 +24,23 @@ import {
 
 const PIN_LENGTH = 6;
 
-const KIOSK_INIT_STEPS = [
-  'Xác thực mã kiosk',
-  'Khởi tạo phiên phỏng vấn',
-  'Đồng bộ hồ sơ ứng viên',
-  'Tải danh sách giọng AI',
-  'Chuẩn bị phòng phỏng vấn',
+const KIOSK_INIT_STATES = [
+  {
+    title: 'Waking interview service',
+    detail: 'Đang đánh thức phiên phỏng vấn AI sau thời gian nghỉ.',
+  },
+  {
+    title: 'Restoring candidate context',
+    detail: 'Đồng bộ lịch hẹn, hồ sơ và cấu hình kiosk.',
+  },
+  {
+    title: 'Preparing voice engine',
+    detail: 'Tải cấu hình giọng nói và kênh phản hồi âm thanh.',
+  },
+  {
+    title: 'Opening private room',
+    detail: 'Thiết lập không gian phỏng vấn bảo mật cho ứng viên.',
+  },
 ];
 
 type AppScreenState = 'PIN_ENTRY' | 'VOICE_SELECT' | 'AI_ROOM';
@@ -238,6 +249,7 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const previewAudioRef = useRef<any>(null);
   const initPulse = useRef(new Animated.Value(0)).current;
+  const initTextFade = useRef(new Animated.Value(1)).current;
   const [initStepIndex, setInitStepIndex] = useState(0);
 
   const loadVoices = useCallback(async () => {
@@ -333,24 +345,44 @@ function App() {
       setInitStepIndex(0);
       initPulse.stopAnimation();
       initPulse.setValue(0);
+      initTextFade.stopAnimation();
+      initTextFade.setValue(1);
       return;
     }
 
     const stepTimer = setInterval(() => {
-      setInitStepIndex(prev => (prev + 1) % KIOSK_INIT_STEPS.length);
-    }, 1150);
+      Animated.sequence([
+        Animated.timing(initTextFade, {
+          toValue: 0,
+          duration: 360,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(initTextFade, {
+          toValue: 1,
+          duration: 520,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      setTimeout(() => {
+        setInitStepIndex(prev => (prev + 1) % KIOSK_INIT_STATES.length);
+      }, 360);
+    }, 1650);
 
     const pulseLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(initPulse, {
           toValue: 1,
-          duration: 1150,
-          easing: Easing.out(Easing.quad),
+          duration: 1800,
+          easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(initPulse, {
           toValue: 0,
-          duration: 0,
+          duration: 1800,
+          easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
       ]),
@@ -362,7 +394,7 @@ function App() {
       clearInterval(stepTimer);
       pulseLoop.stop();
     };
-  }, [initPulse, isVerifying]);
+  }, [initPulse, initTextFade, isVerifying]);
 
   useEffect(() => {
     return () => {
@@ -383,15 +415,18 @@ function App() {
 
   const safeVoices = Array.isArray(voices) ? voices : [];
   const styles = useMemo(() => createStyles(isWide), [isWide]);
-  const activeInitStep = KIOSK_INIT_STEPS[initStepIndex % KIOSK_INIT_STEPS.length];
-  const initProgress = `${Math.min(94, 22 + initStepIndex * 18)}%`;
+  const activeInitState = KIOSK_INIT_STATES[initStepIndex % KIOSK_INIT_STATES.length];
   const initPulseScale = initPulse.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.82, 1.45],
+    outputRange: [0.94, 1.08],
   });
   const initPulseOpacity = initPulse.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.5, 0],
+    outputRange: [0.28, 0.62],
+  });
+  const initTextTranslateY = initTextFade.interpolate({
+    inputRange: [0, 1],
+    outputRange: [8, 0],
   });
 
   // Render Full Screen AI Room when in AI_ROOM state
@@ -581,29 +616,26 @@ function App() {
                         </View>
                       </View>
 
-                      <Text style={styles.initTitle}>Đang thiết lập phòng phỏng vấn</Text>
-                      <View style={styles.initStepPill}>
-                        <View style={styles.initStepDot} />
-                        <Text style={styles.initStepText}>{activeInitStep}</Text>
+                      <View style={styles.initColdStartMeta}>
+                        <View style={styles.initMetaLine} />
+                        <Text style={styles.initMetaText}>COLD START</Text>
+                        <View style={styles.initMetaLine} />
                       </View>
 
-                      <View style={styles.initProgressTrack}>
-                        <View style={[styles.initProgressFill, { width: initProgress as any }]} />
-                      </View>
+                      <Animated.View
+                        style={[
+                          styles.initTextBlock,
+                          {
+                            opacity: initTextFade,
+                            transform: [{ translateY: initTextTranslateY }],
+                          },
+                        ]}
+                      >
+                        <Text style={styles.initTitle}>{activeInitState.title}</Text>
+                        <Text style={styles.initDetail}>{activeInitState.detail}</Text>
+                      </Animated.View>
 
-                      <View style={styles.initChecklist}>
-                        {KIOSK_INIT_STEPS.slice(0, 4).map((step, index) => {
-                          const active = index === initStepIndex % KIOSK_INIT_STEPS.length;
-                          const done = index < initStepIndex % KIOSK_INIT_STEPS.length;
-
-                          return (
-                            <View key={step} style={styles.initChecklistRow}>
-                              <View style={[styles.initCheckDot, done && styles.initCheckDotDone, active && styles.initCheckDotActive]} />
-                              <Text style={[styles.initCheckText, active && styles.initCheckTextActive]}>{step}</Text>
-                            </View>
-                          );
-                        })}
-                      </View>
+                      <Text style={styles.initFootnote}>INBLUE AI KIOSK · PLEASE STAND BY</Text>
                     </View>
                   ) : (
                     <>
@@ -1118,155 +1150,113 @@ function createStyles(isWide: boolean) {
     },
     initLoaderBox: {
       width: '100%',
-      maxWidth: isWide ? 440 : 340,
+      maxWidth: isWide ? 520 : 350,
       alignItems: 'center',
-      borderWidth: 1,
-      borderColor: 'rgba(152, 203, 255, 0.16)',
-      borderRadius: 28,
-      backgroundColor: 'rgba(5, 10, 26, 0.42)',
-      paddingHorizontal: isWide ? 34 : 24,
-      paddingVertical: isWide ? 34 : 28,
+      borderRadius: 34,
+      backgroundColor: 'rgba(5, 10, 26, 0.2)',
+      paddingHorizontal: isWide ? 42 : 24,
+      paddingVertical: isWide ? 38 : 30,
       shadowColor: C.primaryDeep,
-      shadowOpacity: 0.24,
-      shadowRadius: 28,
+      shadowOpacity: 0.18,
+      shadowRadius: 46,
       ...(Platform.OS === 'web' ? {
-        backdropFilter: 'blur(22px)',
-        WebkitBackdropFilter: 'blur(22px)',
+        backdropFilter: 'blur(18px)',
+        WebkitBackdropFilter: 'blur(18px)',
       } as any : {}),
     },
     initOrbWrap: {
-      width: 106,
-      height: 106,
+      width: 128,
+      height: 128,
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: 20,
+      marginBottom: 26,
     },
     initOrbPulse: {
       position: 'absolute',
-      width: 88,
-      height: 88,
+      width: 104,
+      height: 104,
       borderRadius: 999,
-      borderWidth: 1,
-      borderColor: 'rgba(0, 163, 255, 0.7)',
-      backgroundColor: 'rgba(0, 163, 255, 0.12)',
+      borderWidth: 12,
+      borderColor: 'rgba(0, 163, 255, 0.08)',
+      backgroundColor: 'rgba(152, 203, 255, 0.04)',
     },
     initOrbCore: {
-      width: 78,
-      height: 78,
+      width: 82,
+      height: 82,
       borderRadius: 999,
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: 1.5,
-      borderColor: 'rgba(152, 203, 255, 0.44)',
-      backgroundColor: 'rgba(18, 34, 58, 0.86)',
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.28)',
+      backgroundColor: 'rgba(8, 20, 40, 0.78)',
       shadowColor: C.primaryDeep,
-      shadowOpacity: 0.42,
-      shadowRadius: 24,
+      shadowOpacity: 0.24,
+      shadowRadius: 32,
     },
     initOrbDot: {
       position: 'absolute',
-      top: 17,
-      right: 19,
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      backgroundColor: '#10B981',
-      shadowColor: '#10B981',
-      shadowOpacity: 0.7,
-      shadowRadius: 10,
-    },
-    initOrbText: {
-      color: C.primary,
-      fontSize: 22,
-      fontWeight: '900',
-      letterSpacing: 1.4,
-    },
-    initTitle: {
-      color: C.onSurface,
-      fontSize: isWide ? 20 : 17,
-      fontWeight: '900',
-      textAlign: 'center',
-      marginBottom: 14,
-    },
-    initStepPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 9,
-      borderWidth: 1,
-      borderColor: 'rgba(0, 163, 255, 0.28)',
-      borderRadius: 999,
-      backgroundColor: 'rgba(0, 163, 255, 0.1)',
-      paddingHorizontal: 14,
-      paddingVertical: 9,
-      marginBottom: 18,
-    },
-    initStepDot: {
-      width: 7,
-      height: 7,
-      borderRadius: 999,
-      backgroundColor: C.primaryDeep,
-      shadowColor: C.primaryDeep,
-      shadowOpacity: 0.8,
-      shadowRadius: 8,
-    },
-    initStepText: {
-      color: C.primary,
-      fontSize: 12,
-      fontWeight: '900',
-      letterSpacing: 0.7,
-      textTransform: 'uppercase',
-    },
-    initProgressTrack: {
-      width: '100%',
-      height: 7,
-      borderRadius: 999,
-      overflow: 'hidden',
-      backgroundColor: 'rgba(152, 203, 255, 0.1)',
-      marginBottom: 20,
-    },
-    initProgressFill: {
-      height: '100%',
+      top: 18,
+      right: 21,
+      width: 6,
+      height: 6,
       borderRadius: 999,
       backgroundColor: C.primaryDeep,
       shadowColor: C.primaryDeep,
       shadowOpacity: 0.55,
-      shadowRadius: 12,
-    },
-    initChecklist: {
-      width: '100%',
-      gap: 10,
-    },
-    initChecklistRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-    },
-    initCheckDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: 'rgba(152, 203, 255, 0.28)',
-      backgroundColor: 'rgba(152, 203, 255, 0.08)',
-    },
-    initCheckDotDone: {
-      borderColor: '#10B981',
-      backgroundColor: '#10B981',
-    },
-    initCheckDotActive: {
-      borderColor: C.primaryDeep,
-      backgroundColor: C.primaryDeep,
-      shadowColor: C.primaryDeep,
-      shadowOpacity: 0.8,
       shadowRadius: 8,
     },
-    initCheckText: {
-      color: 'rgba(190, 199, 212, 0.6)',
-      fontSize: 12,
-      fontWeight: '700',
+    initOrbText: {
+      color: C.primary,
+      fontSize: 21,
+      fontWeight: '900',
+      letterSpacing: 1.4,
     },
-    initCheckTextActive: {
+    initColdStartMeta: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 18,
+    },
+    initMetaLine: {
+      width: isWide ? 70 : 48,
+      height: 1,
+      backgroundColor: 'rgba(0, 163, 255, 0.26)',
+    },
+    initMetaText: {
+      color: 'rgba(152, 203, 255, 0.66)',
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 2.4,
+      textTransform: 'uppercase',
+    },
+    initTextBlock: {
+      width: '100%',
+      alignItems: 'center',
+      minHeight: isWide ? 94 : 104,
+      justifyContent: 'center',
+      marginBottom: 14,
+    },
+    initTitle: {
       color: C.onSurface,
+      fontSize: isWide ? 24 : 19,
+      fontWeight: '900',
+      textAlign: 'center',
+      letterSpacing: 0.2,
+      marginBottom: 10,
+    },
+    initDetail: {
+      color: 'rgba(190, 199, 212, 0.72)',
+      fontSize: isWide ? 14 : 12,
+      fontWeight: '600',
+      lineHeight: isWide ? 22 : 19,
+      textAlign: 'center',
+      maxWidth: 420,
+    },
+    initFootnote: {
+      color: 'rgba(152, 203, 255, 0.36)',
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 2,
     },
     errorText: {
       color: '#EF4444',
