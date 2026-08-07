@@ -267,6 +267,10 @@ function App() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const previewAudioRef = useRef<any>(null);
+  const previewWaveFrameRef = useRef<number | null>(null);
+  const previewAudioContextRef = useRef<any>(null);
+  const previewAudioSourceRef = useRef<any>(null);
+  const voicePreviewWaveLevels = useRef([0.3, 0.55, 0.82, 0.55, 0.3].map(level => new Animated.Value(level))).current;
   const initPulse = useRef(new Animated.Value(0)).current;
   const initSpin = useRef(new Animated.Value(0)).current;
   const initTextFade = useRef(new Animated.Value(1)).current;
@@ -343,22 +347,93 @@ function App() {
     setScreenState('PIN_ENTRY');
   };
 
+  const resetPreviewWave = useCallback(() => {
+    if (previewWaveFrameRef.current != null && Platform.OS === 'web') {
+      cancelAnimationFrame(previewWaveFrameRef.current);
+      previewWaveFrameRef.current = null;
+    }
+
+    voicePreviewWaveLevels.forEach((level, index) => {
+      level.setValue([0.3, 0.55, 0.82, 0.55, 0.3][index]);
+    });
+  }, [voicePreviewWaveLevels]);
+
+  const startPreviewWaveFromAudio = useCallback((audio: HTMLAudioElement) => {
+    if (Platform.OS !== 'web') return;
+
+    resetPreviewWave();
+
+    try {
+      const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextCtor) return;
+
+      const audioContext = previewAudioContextRef.current || new AudioContextCtor();
+      previewAudioContextRef.current = audioContext;
+      void audioContext.resume?.();
+
+      previewAudioSourceRef.current?.disconnect?.();
+      const source = audioContext.createMediaElementSource(audio);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 64;
+      analyser.smoothingTimeConstant = 0.76;
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+      previewAudioSourceRef.current = source;
+
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const draw = () => {
+        analyser.getByteFrequencyData(data);
+
+        voicePreviewWaveLevels.forEach((level, index) => {
+          const start = Math.floor((index / voicePreviewWaveLevels.length) * data.length);
+          const end = Math.max(start + 1, Math.floor(((index + 1) / voicePreviewWaveLevels.length) * data.length));
+          let total = 0;
+          for (let i = start; i < end; i += 1) total += data[i];
+          const energy = total / Math.max(1, end - start) / 255;
+          level.setValue(0.24 + energy * 1.36);
+        });
+
+        previewWaveFrameRef.current = requestAnimationFrame(draw);
+      };
+
+      draw();
+    } catch (err) {
+      console.warn('Voice preview wave unavailable:', err);
+      resetPreviewWave();
+    }
+  }, [resetPreviewWave, voicePreviewWaveLevels]);
+
   const handlePreviewVoice = useCallback((voice: VoiceOption) => {
+    setSelectedVoiceId(voice.id);
+
     if (Platform.OS !== 'web') return;
 
     try {
       previewAudioRef.current?.pause?.();
+      previewAudioSourceRef.current?.disconnect?.();
       const audio = new Audio(resolveApiAssetUrl(voice.previewUrl));
       previewAudioRef.current = audio;
       setPreviewingVoiceId(voice.id);
-      audio.onended = () => setPreviewingVoiceId(null);
-      audio.onerror = () => setPreviewingVoiceId(null);
-      void audio.play();
+      audio.onended = () => {
+        setPreviewingVoiceId(null);
+        resetPreviewWave();
+      };
+      audio.onerror = () => {
+        setPreviewingVoiceId(null);
+        resetPreviewWave();
+      };
+      startPreviewWaveFromAudio(audio);
+      void audio.play().catch((playError: any) => {
+        console.warn('Voice preview playback blocked:', playError);
+        setPreviewingVoiceId(null);
+        resetPreviewWave();
+      });
     } catch (err) {
       console.warn('Voice preview failed:', err);
       setPreviewingVoiceId(null);
+      resetPreviewWave();
     }
-  }, []);
+  }, [resetPreviewWave, startPreviewWaveFromAudio]);
 
   useEffect(() => {
     if (!isVerifying) {
@@ -433,8 +508,10 @@ function App() {
     return () => {
       previewAudioRef.current?.pause?.();
       previewAudioRef.current = null;
+      previewAudioSourceRef.current?.disconnect?.();
+      resetPreviewWave();
     };
-  }, []);
+  }, [resetPreviewWave]);
 
   const handleFinishAIRoom = () => {
     setPin('');
@@ -528,10 +605,11 @@ function App() {
                 />
               )}
 
-              {/* Clock - Top Right of Right Panel */}
-              <View style={styles.clockContainer}>
-                <Clock />
-              </View>
+              {screenState !== 'VOICE_SELECT' && (
+                <View style={styles.clockContainer}>
+                  <Clock />
+                </View>
+              )}
 
               {/* Center Interaction Workspace */}
               <View style={styles.rightCenter}>
@@ -565,7 +643,7 @@ function App() {
                           return (
                             <Pressable
                               key={voice.id}
-                              onPress={() => setSelectedVoiceId(voice.id)}
+                              onPress={() => handlePreviewVoice(voice)}
                               style={({ pressed }) => [
                                 styles.voiceCard,
                                 selected && styles.voiceCardSelected,
@@ -587,22 +665,23 @@ function App() {
                               </View>
                               <Text style={styles.voiceDescription}>{voice.description}</Text>
                               <View style={styles.voiceCardFooter}>
-                                <View style={[styles.voiceSignal, selected && styles.voiceSignalActive]}>
-                                  <View style={styles.voiceSignalBarShort} />
-                                  <View style={styles.voiceSignalBarTall} />
-                                  <View style={styles.voiceSignalBarMid} />
+                                <View style={[styles.voiceSignal, selected && styles.voiceSignalActive, previewing && styles.voiceSignalPlaying]}>
+                                  {voicePreviewWaveLevels.map((level, barIndex) => (
+                                    <Animated.View
+                                      key={barIndex}
+                                      style={[
+                                        styles.voiceSignalBar,
+                                        barIndex % 2 === 0 && styles.voiceSignalBarSoft,
+                                        {
+                                          transform: [{ scaleY: previewing ? level : 1 }],
+                                        },
+                                      ]}
+                                    />
+                                  ))}
                                 </View>
-                                {Platform.OS === 'web' && (
-                                <Pressable
-                                  onPress={(event: any) => {
-                                    event?.stopPropagation?.();
-                                    handlePreviewVoice(voice);
-                                  }}
-                                  style={({ pressed }) => [styles.voicePreviewBtn, pressed && { opacity: 0.8 }]}
-                                >
-                                  <Text style={styles.voicePreviewText}>{previewing ? 'Đang nghe...' : 'Nghe thử'}</Text>
-                                </Pressable>
-                                )}
+                                <Text style={[styles.voiceTapHint, previewing && styles.voiceTapHintActive]}>
+                                  {previewing ? 'Đang phát mẫu giọng' : 'Chạm để chọn'}
+                                </Text>
                               </View>
                             </Pressable>
                           );
@@ -1071,44 +1150,38 @@ function createStyles(isWide: boolean) {
     voiceSignal: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 3,
+      height: 28,
+      gap: 4,
       opacity: 0.48,
     },
     voiceSignalActive: {
       opacity: 1,
     },
-    voiceSignalBarShort: {
-      width: 3,
-      height: 9,
-      borderRadius: 3,
-      backgroundColor: C.primaryDeep,
+    voiceSignalPlaying: {
+      opacity: 1,
     },
-    voiceSignalBarTall: {
-      width: 3,
-      height: 18,
-      borderRadius: 3,
+    voiceSignalBar: {
+      width: 4,
+      height: 16,
+      borderRadius: 4,
       backgroundColor: C.primary,
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.34,
+      shadowRadius: 8,
     },
-    voiceSignalBarMid: {
-      width: 3,
-      height: 13,
-      borderRadius: 3,
+    voiceSignalBarSoft: {
+      height: 11,
       backgroundColor: C.primaryDeep,
     },
-    voicePreviewBtn: {
-      alignSelf: 'flex-end',
-      borderWidth: 1,
-      borderColor: 'rgba(152, 203, 255, 0.18)',
-      borderRadius: 999,
-      paddingHorizontal: 12,
-      paddingVertical: 7,
-      backgroundColor: 'rgba(152, 203, 255, 0.08)',
-    },
-    voicePreviewText: {
-      color: C.primary,
-      fontSize: 11,
+    voiceTapHint: {
+      color: 'rgba(152, 203, 255, 0.62)',
+      fontSize: 10,
       fontWeight: '800',
-      letterSpacing: 0.6,
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+    },
+    voiceTapHintActive: {
+      color: C.primary,
     },
     voiceActionRow: {
       width: '100%',
