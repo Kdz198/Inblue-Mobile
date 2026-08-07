@@ -26,20 +26,20 @@ const PIN_LENGTH = 6;
 
 const KIOSK_INIT_STATES = [
   {
-    title: 'Waking interview service',
-    detail: 'Đang đánh thức phiên phỏng vấn AI sau thời gian nghỉ.',
+    title: 'Preparing interview room',
+    detail: 'Đang chuẩn bị không gian phỏng vấn AI cho phiên làm việc của bạn.',
   },
   {
-    title: 'Restoring candidate context',
-    detail: 'Đồng bộ lịch hẹn, hồ sơ và cấu hình kiosk.',
+    title: 'Syncing candidate session',
+    detail: 'Đồng bộ lịch hẹn, mã kiosk và cấu hình phỏng vấn cá nhân.',
   },
   {
-    title: 'Preparing voice engine',
-    detail: 'Tải cấu hình giọng nói và kênh phản hồi âm thanh.',
+    title: 'Configuring voice channel',
+    detail: 'Thiết lập kênh âm thanh để AI có thể trao đổi trực tiếp.',
   },
   {
-    title: 'Opening private room',
-    detail: 'Thiết lập không gian phỏng vấn bảo mật cho ứng viên.',
+    title: 'Finalizing AI workspace',
+    detail: 'Hoàn tất môi trường riêng tư trước khi bắt đầu buổi phỏng vấn.',
   },
 ];
 
@@ -190,6 +190,25 @@ function LockOpenIcon() {
 }
 
 /* ───── Real-Time Clock Widget (Right Panel) ───── */
+function RobotLineIcon({ size = 38, color = '#98cbff' }: { size?: number; color?: string }) {
+  if (Platform.OS !== 'web') {
+    return <Text style={{ color, fontSize: Math.max(16, size * 0.46), fontWeight: '900' }}>🤖</Text>;
+  }
+
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="5" y="8" width="14" height="10" rx="4" />
+      <path d="M12 8V4.5" />
+      <path d="M8.5 4.5h7" />
+      <path d="M8.5 13h.01" />
+      <path d="M15.5 13h.01" />
+      <path d="M10 16h4" />
+      <path d="M5 12H3" />
+      <path d="M21 12h-2" />
+    </svg>
+  );
+}
+
 function Clock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -249,6 +268,7 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const previewAudioRef = useRef<any>(null);
   const initPulse = useRef(new Animated.Value(0)).current;
+  const initSpin = useRef(new Animated.Value(0)).current;
   const initTextFade = useRef(new Animated.Value(1)).current;
   const [initStepIndex, setInitStepIndex] = useState(0);
 
@@ -344,7 +364,9 @@ function App() {
     if (!isVerifying) {
       setInitStepIndex(0);
       initPulse.stopAnimation();
+      initSpin.stopAnimation();
       initPulse.setValue(0);
+      initSpin.setValue(0);
       initTextFade.stopAnimation();
       initTextFade.setValue(1);
       return;
@@ -354,13 +376,13 @@ function App() {
       Animated.sequence([
         Animated.timing(initTextFade, {
           toValue: 0,
-          duration: 360,
+          duration: 520,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
         Animated.timing(initTextFade, {
           toValue: 1,
-          duration: 520,
+          duration: 680,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -368,8 +390,8 @@ function App() {
 
       setTimeout(() => {
         setInitStepIndex(prev => (prev + 1) % KIOSK_INIT_STATES.length);
-      }, 360);
-    }, 1650);
+      }, 520);
+    }, 2850);
 
     const pulseLoop = Animated.loop(
       Animated.sequence([
@@ -388,13 +410,24 @@ function App() {
       ]),
     );
 
+    const spinLoop = Animated.loop(
+      Animated.timing(initSpin, {
+        toValue: 1,
+        duration: 1400,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+
     pulseLoop.start();
+    spinLoop.start();
 
     return () => {
       clearInterval(stepTimer);
       pulseLoop.stop();
+      spinLoop.stop();
     };
-  }, [initPulse, initTextFade, isVerifying]);
+  }, [initPulse, initSpin, initTextFade, isVerifying]);
 
   useEffect(() => {
     return () => {
@@ -427,6 +460,10 @@ function App() {
   const initTextTranslateY = initTextFade.interpolate({
     inputRange: [0, 1],
     outputRange: [8, 0],
+  });
+  const initSpinRotate = initSpin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
   });
 
   // Render Full Screen AI Room when in AI_ROOM state
@@ -610,9 +647,17 @@ function App() {
                             },
                           ]}
                         />
+                        <Animated.View
+                          style={[
+                            styles.initOrbSpinner,
+                            {
+                              transform: [{ rotate: initSpinRotate }],
+                            },
+                          ]}
+                        />
                         <View style={styles.initOrbCore}>
                           <View style={styles.initOrbDot} />
-                          <Text style={styles.initOrbText}>AI</Text>
+                          <RobotLineIcon size={40} color="#98CBFF" />
                         </View>
                       </View>
 
@@ -1179,6 +1224,16 @@ function createStyles(isWide: boolean) {
       borderWidth: 12,
       borderColor: 'rgba(0, 163, 255, 0.08)',
       backgroundColor: 'rgba(152, 203, 255, 0.04)',
+    },
+    initOrbSpinner: {
+      position: 'absolute',
+      width: 116,
+      height: 116,
+      borderRadius: 999,
+      borderWidth: 2,
+      borderColor: 'rgba(152, 203, 255, 0.08)',
+      borderTopColor: C.primaryDeep,
+      borderRightColor: 'rgba(152, 203, 255, 0.34)',
     },
     initOrbCore: {
       width: 82,
