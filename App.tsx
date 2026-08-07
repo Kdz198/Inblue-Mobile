@@ -429,9 +429,10 @@ function App() {
                       </View>
                     ) : (
                       <View style={styles.voiceGrid}>
-                        {safeVoices.map(voice => {
+                        {safeVoices.map((voice, index) => {
                           const selected = selectedVoiceId === voice.id;
                           const previewing = previewingVoiceId === voice.id;
+                          const voiceCode = `V${String(index + 1).padStart(2, '0')}`;
 
                           return (
                             <Pressable
@@ -443,6 +444,10 @@ function App() {
                                 pressed && { transform: [{ scale: 0.985 }], opacity: 0.92 },
                               ]}
                             >
+                              <View style={styles.voiceCardTopLine}>
+                                <Text style={styles.voiceCode}>{voiceCode}</Text>
+                                {selected && <Text style={styles.voiceSelectedPill}>ACTIVE</Text>}
+                              </View>
                               <View style={styles.voiceCardHeader}>
                                 <View style={[styles.voiceAvatar, selected && styles.voiceAvatarSelected]}>
                                   <Text style={styles.voiceAvatarText}>{voice.name.slice(0, 1).toUpperCase()}</Text>
@@ -453,7 +458,13 @@ function App() {
                                 </View>
                               </View>
                               <Text style={styles.voiceDescription}>{voice.description}</Text>
-                              {Platform.OS === 'web' && (
+                              <View style={styles.voiceCardFooter}>
+                                <View style={[styles.voiceSignal, selected && styles.voiceSignalActive]}>
+                                  <View style={styles.voiceSignalBarShort} />
+                                  <View style={styles.voiceSignalBarTall} />
+                                  <View style={styles.voiceSignalBarMid} />
+                                </View>
+                                {Platform.OS === 'web' && (
                                 <Pressable
                                   onPress={(event: any) => {
                                     event?.stopPropagation?.();
@@ -463,7 +474,8 @@ function App() {
                                 >
                                   <Text style={styles.voicePreviewText}>{previewing ? 'Đang nghe...' : 'Nghe thử'}</Text>
                                 </Pressable>
-                              )}
+                                )}
+                              </View>
                             </Pressable>
                           );
                         })}
@@ -717,14 +729,14 @@ function createStyles(isWide: boolean) {
     },
     voiceSelectBox: {
       width: '100%',
-      maxWidth: isWide ? 660 : 430,
+      maxWidth: isWide ? 720 : 430,
       alignItems: 'center',
       backgroundColor: 'rgba(5, 10, 26, 0.46)',
       borderWidth: 1,
       borderColor: 'rgba(152, 203, 255, 0.16)',
       borderRadius: 24,
-      paddingHorizontal: isWide ? 30 : 20,
-      paddingVertical: isWide ? 30 : 22,
+      paddingHorizontal: isWide ? 34 : 20,
+      paddingVertical: isWide ? 32 : 22,
       shadowColor: C.primaryDeep,
       shadowOpacity: 0.18,
       shadowRadius: 34,
@@ -778,49 +790,77 @@ function createStyles(isWide: boolean) {
       width: '100%',
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 12,
+      gap: 14,
       justifyContent: 'center',
-      marginBottom: 22,
+      marginBottom: 24,
     },
     voiceCard: {
-      width: isWide ? '48%' : '100%',
-      minHeight: 138,
-      borderRadius: 16,
+      width: isWide ? '47.8%' : '100%',
+      minHeight: 162,
+      borderRadius: 20,
       borderWidth: 1,
-      borderColor: 'rgba(152, 203, 255, 0.14)',
-      backgroundColor: 'rgba(18, 28, 48, 0.52)',
-      padding: 15,
+      borderColor: 'rgba(152, 203, 255, 0.16)',
+      backgroundColor: 'rgba(9, 18, 36, 0.72)',
+      padding: 16,
+      overflow: 'hidden',
     },
     voiceCardSelected: {
-      borderColor: 'rgba(0, 163, 255, 0.7)',
-      backgroundColor: 'rgba(0, 163, 255, 0.13)',
+      borderColor: 'rgba(0, 163, 255, 0.76)',
+      backgroundColor: 'rgba(0, 163, 255, 0.14)',
       shadowColor: C.primaryDeep,
       shadowOpacity: 0.28,
-      shadowRadius: 18,
+      shadowRadius: 22,
+    },
+    voiceCardTopLine: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 12,
+    },
+    voiceCode: {
+      color: 'rgba(152, 203, 255, 0.62)',
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 1.8,
+    },
+    voiceSelectedPill: {
+      color: C.primary,
+      fontSize: 9,
+      fontWeight: '900',
+      letterSpacing: 1.2,
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.34)',
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      backgroundColor: 'rgba(152, 203, 255, 0.1)',
     },
     voiceCardHeader: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
-      marginBottom: 10,
+      gap: 14,
+      marginBottom: 12,
     },
     voiceAvatar: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
+      width: 48,
+      height: 48,
+      borderRadius: 24,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
       borderColor: 'rgba(152, 203, 255, 0.18)',
-      backgroundColor: 'rgba(152, 203, 255, 0.08)',
+      backgroundColor: 'rgba(0, 163, 255, 0.1)',
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.22,
+      shadowRadius: 16,
     },
     voiceAvatarSelected: {
       borderColor: C.primary,
-      backgroundColor: 'rgba(152, 203, 255, 0.18)',
+      backgroundColor: 'rgba(152, 203, 255, 0.2)',
     },
     voiceAvatarText: {
       color: C.primary,
-      fontSize: 16,
+      fontSize: 19,
       fontWeight: '900',
     },
     voiceCardTitleWrap: {
@@ -828,9 +868,9 @@ function createStyles(isWide: boolean) {
     },
     voiceName: {
       color: C.onSurface,
-      fontSize: 14,
+      fontSize: 15,
       fontWeight: '900',
-      marginBottom: 3,
+      marginBottom: 4,
     },
     voiceMeta: {
       color: 'rgba(152, 203, 255, 0.72)',
@@ -843,11 +883,45 @@ function createStyles(isWide: boolean) {
       color: C.onSurfaceVariant,
       fontSize: 12,
       lineHeight: 18,
-      minHeight: 38,
-      marginBottom: 12,
+      minHeight: 44,
+      marginBottom: 14,
+    },
+    voiceCardFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+      marginTop: 'auto',
+    },
+    voiceSignal: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      opacity: 0.48,
+    },
+    voiceSignalActive: {
+      opacity: 1,
+    },
+    voiceSignalBarShort: {
+      width: 3,
+      height: 9,
+      borderRadius: 3,
+      backgroundColor: C.primaryDeep,
+    },
+    voiceSignalBarTall: {
+      width: 3,
+      height: 18,
+      borderRadius: 3,
+      backgroundColor: C.primary,
+    },
+    voiceSignalBarMid: {
+      width: 3,
+      height: 13,
+      borderRadius: 3,
+      backgroundColor: C.primaryDeep,
     },
     voicePreviewBtn: {
-      alignSelf: 'flex-start',
+      alignSelf: 'flex-end',
       borderWidth: 1,
       borderColor: 'rgba(152, 203, 255, 0.18)',
       borderRadius: 999,

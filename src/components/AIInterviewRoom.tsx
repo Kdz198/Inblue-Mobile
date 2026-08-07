@@ -450,7 +450,7 @@ export function AIInterviewRoom({
   }, [pulseAiSpeechAura, resetAudioWave, setAiSpeechAuraEnergy]);
 
   // Speak AI Question using backend TTS audio, with browser TTS as a web fallback.
-  const speakText = useCallback(async (text: string) => {
+  const speakText = useCallback(async (text: string, voiceIdOverride?: string) => {
     stopTtsPlayback();
 
     try {
@@ -458,7 +458,7 @@ export function AIInterviewRoom({
       setIsAiSpeaking(true);
       pulseAiSpeechAura();
 
-      const audioBlob = await generateTtsAudioApi(text, selectedVoiceId);
+      const audioBlob = await generateTtsAudioApi(text, voiceIdOverride || selectedVoiceId);
       ttsPlaybackRef.current = await playTtsAudioBlob(audioBlob, {
         onStart: () => {
           setIsAiSpeaking(true);
@@ -531,6 +531,12 @@ export function AIInterviewRoom({
     }
   }, [speakText]);
 
+  const handleApiResponseRef = useRef(handleApiResponse);
+
+  useEffect(() => {
+    handleApiResponseRef.current = handleApiResponse;
+  }, [handleApiResponse]);
+
   // Load First Question upon entry
   useEffect(() => {
     let mounted = true;
@@ -539,12 +545,12 @@ export function AIInterviewRoom({
         setIsLoadingQuestion(true);
         const data = await startInterviewApi(sessionKey);
         if (mounted) {
-          handleApiResponse(data);
+          handleApiResponseRef.current(data);
         }
       } catch (err) {
         console.warn('Start interview fallback mock:', err);
         if (mounted) {
-          handleApiResponse({
+          handleApiResponseRef.current({
             questionContent: 'Chào bạn! Mình là AI Interviewer. Rất vui được trao đổi với bạn hôm nay. Để bắt đầu, bạn hãy giới thiệu ngắn gọn về bản thân và những dự án bạn tự tâm đắc nhất nhé?',
             phaseName: 'Vòng 7: Phỏng Vấn AI',
             currentQuestionIndex: 1,
@@ -557,7 +563,7 @@ export function AIInterviewRoom({
     }
     loadStart();
     return () => { mounted = false; };
-  }, [sessionKey, handleApiResponse]);
+  }, [sessionKey]);
 
   // Speech-To-Text (STT) Recording Toggle
   const toggleRecording = () => {
@@ -700,6 +706,16 @@ export function AIInterviewRoom({
   const latestAiQuestion = messages.filter(m => m.role === 'ai').pop()?.content || 'Đang kết nối với Trợ lý phỏng vấn AI...';
   const isQuestionPending = isLoadingQuestion || isSubmitting;
   const selectedVoice = voices.find(voice => voice.id === selectedVoiceId) || voices[0];
+  const handleSelectVoiceDuringInterview = (voiceId: string) => {
+    setSelectedVoiceId(voiceId);
+    onVoiceChange?.(voiceId);
+    setIsVoiceMenuOpen(false);
+
+    const lastQuestion = messages.filter(m => m.role === 'ai').pop()?.content;
+    if (lastQuestion) {
+      void speakText(lastQuestion, voiceId);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -749,9 +765,7 @@ export function AIInterviewRoom({
                       <Pressable
                         key={voice.id}
                         onPress={() => {
-                          setSelectedVoiceId(voice.id);
-                          onVoiceChange?.(voice.id);
-                          setIsVoiceMenuOpen(false);
+                          handleSelectVoiceDuringInterview(voice.id);
                         }}
                         style={({ pressed }) => [
                           styles.voiceMenuItem,
