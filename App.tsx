@@ -365,19 +365,30 @@ function App() {
 
     try {
       const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContextCtor) return;
+      const stream = (audio as any).captureStream?.() || (audio as any).mozCaptureStream?.();
+      if (!AudioContextCtor || !stream) {
+        const drawFallback = () => {
+          const t = audio.currentTime || 0;
+          voicePreviewWaveLevels.forEach((level, index) => {
+            const energy = 0.42 + Math.abs(Math.sin(t * 5.8 + index * 0.72)) * 0.74;
+            level.setValue(energy);
+          });
+          previewWaveFrameRef.current = requestAnimationFrame(drawFallback);
+        };
+        drawFallback();
+        return;
+      }
 
       const audioContext = previewAudioContextRef.current || new AudioContextCtor();
       previewAudioContextRef.current = audioContext;
       void audioContext.resume?.();
 
       previewAudioSourceRef.current?.disconnect?.();
-      const source = audioContext.createMediaElementSource(audio);
+      const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 64;
       analyser.smoothingTimeConstant = 0.76;
       source.connect(analyser);
-      analyser.connect(audioContext.destination);
       previewAudioSourceRef.current = source;
 
       const data = new Uint8Array(analyser.frequencyBinCount);
@@ -422,8 +433,9 @@ function App() {
         setPreviewingVoiceId(null);
         resetPreviewWave();
       };
-      startPreviewWaveFromAudio(audio);
-      void audio.play().catch((playError: any) => {
+      void audio.play().then(() => {
+        startPreviewWaveFromAudio(audio);
+      }).catch((playError: any) => {
         console.warn('Voice preview playback blocked:', playError);
         setPreviewingVoiceId(null);
         resetPreviewWave();
@@ -720,7 +732,7 @@ function App() {
                 ) : (
                   <View style={styles.centerBox}>
                   {/* Material Lock Open Icon */}
-                  <LockOpenIcon />
+                  {!isVerifying && <LockOpenIcon />}
 
                   {isVerifying ? (
                     <View style={styles.initLoaderBox}>
