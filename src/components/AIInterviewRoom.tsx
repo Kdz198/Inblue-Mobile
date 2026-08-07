@@ -16,12 +16,16 @@ import {
   generateTtsAudioApi,
   startInterviewApi,
   submitAnswerApi,
+  type VoiceOption,
 } from '../lib/api';
 import { CyberCanvasBackground } from './CyberCanvasBackground';
 import { playTtsAudioBlob, type TtsPlayback } from '../lib/ttsAudio';
 
 interface AIInterviewRoomProps {
   sessionKey: string;
+  initialVoiceId?: string;
+  voices?: VoiceOption[];
+  onVoiceChange?: (voiceId: string) => void;
   onFinish: () => void;
 }
 
@@ -144,7 +148,13 @@ function LineIcon({
   );
 }
 
-export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) {
+export function AIInterviewRoom({
+  sessionKey,
+  initialVoiceId = '',
+  voices = [],
+  onVoiceChange,
+  onFinish,
+}: AIInterviewRoomProps) {
   const { width, height } = useWindowDimensions();
   const isWide = width >= 1024;
   const isKioskCompact = height <= 820;
@@ -163,6 +173,8 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [thinkingDotStep, setThinkingDotStep] = useState(0);
+  const [selectedVoiceId, setSelectedVoiceId] = useState(initialVoiceId || voices[0]?.id || '');
+  const [isVoiceMenuOpen, setIsVoiceMenuOpen] = useState(false);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
   const transcriptScrollViewRef = useRef<ScrollView | null>(null);
@@ -243,6 +255,14 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
 
     return () => clearInterval(interval);
   }, [isLoadingQuestion, isSubmitting]);
+
+  useEffect(() => {
+    if (initialVoiceId) {
+      setSelectedVoiceId(initialVoiceId);
+    } else if (!selectedVoiceId && voices[0]?.id) {
+      setSelectedVoiceId(voices[0].id);
+    }
+  }, [initialVoiceId, selectedVoiceId, voices]);
 
   useEffect(() => {
     transcriptScrollViewRef.current?.scrollToEnd({ animated: true });
@@ -438,7 +458,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
       setIsAiSpeaking(true);
       pulseAiSpeechAura();
 
-      const audioBlob = await generateTtsAudioApi(text);
+      const audioBlob = await generateTtsAudioApi(text, selectedVoiceId);
       ttsPlaybackRef.current = await playTtsAudioBlob(audioBlob, {
         onStart: () => {
           setIsAiSpeaking(true);
@@ -472,6 +492,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
     pulseAiSpeechAura,
     resetAudioWave,
     setAiSpeechAuraEnergy,
+    selectedVoiceId,
     speakWithBrowserFallback,
     stopTtsPlayback,
   ]);
@@ -678,6 +699,7 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
   // Latest AI Question for display on main stage
   const latestAiQuestion = messages.filter(m => m.role === 'ai').pop()?.content || 'Đang kết nối với Trợ lý phỏng vấn AI...';
   const isQuestionPending = isLoadingQuestion || isSubmitting;
+  const selectedVoice = voices.find(voice => voice.id === selectedVoiceId) || voices[0];
 
   return (
     <View style={styles.container}>
@@ -705,6 +727,47 @@ export function AIInterviewRoom({ sessionKey, onFinish }: AIInterviewRoomProps) 
             <LineIcon name="clock" size={18} />
             <Text style={styles.clockText}>{clockStr}</Text>
           </View>
+
+          {voices.length > 0 && (
+            <View style={styles.voiceSwitcherWrap}>
+              <Pressable
+                onPress={() => setIsVoiceMenuOpen(prev => !prev)}
+                style={({ pressed }) => [styles.voiceSwitcherBtn, pressed && { opacity: 0.85 }]}
+              >
+                <LineIcon name="ai" size={16} color="#98CBFF" />
+                <Text style={styles.voiceSwitcherText} numberOfLines={1}>
+                  {selectedVoice?.name || 'Giọng AI'}
+                </Text>
+              </Pressable>
+
+              {isVoiceMenuOpen && (
+                <View style={styles.voiceMenu}>
+                  {voices.map(voice => {
+                    const active = voice.id === selectedVoiceId;
+
+                    return (
+                      <Pressable
+                        key={voice.id}
+                        onPress={() => {
+                          setSelectedVoiceId(voice.id);
+                          onVoiceChange?.(voice.id);
+                          setIsVoiceMenuOpen(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.voiceMenuItem,
+                          active && styles.voiceMenuItemActive,
+                          pressed && { opacity: 0.88 },
+                        ]}
+                      >
+                        <Text style={styles.voiceMenuName}>{voice.name}</Text>
+                        <Text style={styles.voiceMenuDesc} numberOfLines={2}>{voice.description}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          )}
 
           <Pressable
             onPress={() => setIsDrawerOpen(!isDrawerOpen)}
@@ -1082,6 +1145,70 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  voiceSwitcherWrap: {
+    position: 'relative',
+    zIndex: 80,
+  },
+  voiceSwitcherBtn: {
+    maxWidth: 190,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'rgba(15, 23, 42, 0.58)',
+    borderWidth: 1,
+    borderColor: 'rgba(152, 203, 255, 0.18)',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  voiceSwitcherText: {
+    flexShrink: 1,
+    color: '#CBD5E1',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  voiceMenu: {
+    position: 'absolute',
+    top: 42,
+    right: 0,
+    width: 292,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 163, 255, 0.22)',
+    backgroundColor: 'rgba(5, 10, 26, 0.96)',
+    padding: 8,
+    gap: 7,
+    shadowColor: '#000',
+    shadowOpacity: 0.42,
+    shadowRadius: 24,
+    ...(Platform.OS === 'web' ? {
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+    } as any : {}),
+  },
+  voiceMenuItem: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(152, 203, 255, 0.08)',
+    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+  },
+  voiceMenuItemActive: {
+    borderColor: 'rgba(0, 163, 255, 0.52)',
+    backgroundColor: 'rgba(0, 163, 255, 0.14)',
+  },
+  voiceMenuName: {
+    color: '#F1F5F9',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  voiceMenuDesc: {
+    color: 'rgba(203, 213, 225, 0.72)',
+    fontSize: 10,
+    lineHeight: 15,
   },
   drawerToggleBtn: {
     flexDirection: 'row',

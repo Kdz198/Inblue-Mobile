@@ -40,6 +40,18 @@ export interface ChatMessage {
   };
 }
 
+export interface VoiceOption {
+  id: string;
+  name: string;
+  description: string;
+  previewUrl: string;
+}
+
+export function resolveApiAssetUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 // Fetch helper for Kiosk API endpoints
 export async function enterKioskApi(sessionKey: string): Promise<KioskEnterDtoResponse> {
   const controller = new AbortController();
@@ -140,7 +152,7 @@ export async function submitAnswerApi(sessionKey: string, answerText: string): P
   }
 }
 
-export async function generateTtsAudioApi(text: string): Promise<Blob> {
+export async function generateTtsAudioApi(text: string, voiceId?: string): Promise<Blob> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), SYSTEM_TIMEOUT_MS);
 
@@ -150,7 +162,7 @@ export async function generateTtsAudioApi(text: string): Promise<Blob> {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, voiceId }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -164,6 +176,34 @@ export async function generateTtsAudioApi(text: string): Promise<Blob> {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
       throw new Error('Táº¡o giá»ng Ä‘á»c AI quÃ¡ thá»i gian (Timeout 3 phÃºt). Vui lÃ²ng thá»­ láº¡i!');
+    }
+    throw err;
+  }
+}
+
+export async function getAvailableVoicesApi(): Promise<VoiceOption[]> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYSTEM_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${BASE_URL}/api/v1/interview/voices`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Tải danh sách giọng đọc AI thất bại (${response.status})`);
+    }
+
+    return await response.json();
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Tải danh sách giọng đọc AI quá thời gian. Vui lòng thử lại!');
     }
     throw err;
   }

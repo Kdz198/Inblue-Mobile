@@ -15,12 +15,16 @@ import {
 } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AIInterviewRoom } from './src/components/AIInterviewRoom';
-import { HardwareCheckModal } from './src/components/HardwareCheckModal';
-import { enterKioskApi } from './src/lib/api';
+import {
+  enterKioskApi,
+  getAvailableVoicesApi,
+  resolveApiAssetUrl,
+  type VoiceOption,
+} from './src/lib/api';
 
 const PIN_LENGTH = 6;
 
-type AppScreenState = 'PIN_ENTRY' | 'HARDWARE_CHECK' | 'AI_ROOM';
+type AppScreenState = 'PIN_ENTRY' | 'VOICE_SELECT' | 'AI_ROOM';
 
 const C = {
   bg: '#050A1A',
@@ -217,8 +221,30 @@ function App() {
   const [screenState, setScreenState] = useState<AppScreenState>('PIN_ENTRY');
   const [pin, setPin] = useState('');
   const [aiSessionKey, setAiSessionKey] = useState('');
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [selectedVoiceId, setSelectedVoiceId] = useState('');
+  const [isLoadingVoices, setIsLoadingVoices] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const previewAudioRef = useRef<any>(null);
+
+  const loadVoices = useCallback(async () => {
+    setIsLoadingVoices(true);
+    setVoiceError(null);
+
+    try {
+      const voiceList = await getAvailableVoicesApi();
+      setVoices(voiceList);
+      setSelectedVoiceId(prev => prev || voiceList[0]?.id || '');
+    } catch (err: any) {
+      console.warn('Load voices failed:', err);
+      setVoiceError(err.message || 'Không tải được danh sách giọng đọc AI.');
+    } finally {
+      setIsLoadingVoices(false);
+    }
+  }, []);
 
   // Imperative PIN submit handler directly called upon 6-digit entry
   const handlePinSubmit = useCallback(async (targetPin: string) => {
@@ -230,7 +256,8 @@ function App() {
       const res = await enterKioskApi(targetPin);
       setAiSessionKey(res.aiSessionKey || targetPin);
       setIsVerifying(false);
-      setScreenState('HARDWARE_CHECK');
+      setScreenState('VOICE_SELECT');
+      void loadVoices();
     } catch (err: any) {
       console.warn('Kiosk Auth Failed:', err);
       setIsVerifying(false);
@@ -241,7 +268,7 @@ function App() {
       setAuthError(rawErr);
       setPin('');
     }
-  }, []);
+  }, [loadVoices]);
 
   const pressKey = useCallback((val: string) => {
     if (isVerifying || screenState !== 'PIN_ENTRY') return;
@@ -260,20 +287,51 @@ function App() {
     }
   }, [isVerifying, screenState, pin, handlePinSubmit]);
 
-  const handleHardwareConfirmed = () => {
+  const handleVoiceConfirmed = () => {
     setScreenState('AI_ROOM');
   };
 
-  const handleHardwareCancelled = () => {
+  const handleVoiceSelectCancelled = () => {
     setPin('');
+    setAiSessionKey('');
+    setSelectedVoiceId('');
+    setVoices([]);
     setAuthError(null);
+    setVoiceError(null);
     setScreenState('PIN_ENTRY');
   };
+
+  const handlePreviewVoice = useCallback((voice: VoiceOption) => {
+    if (Platform.OS !== 'web') return;
+
+    try {
+      previewAudioRef.current?.pause?.();
+      const audio = new Audio(resolveApiAssetUrl(voice.previewUrl));
+      previewAudioRef.current = audio;
+      setPreviewingVoiceId(voice.id);
+      audio.onended = () => setPreviewingVoiceId(null);
+      audio.onerror = () => setPreviewingVoiceId(null);
+      void audio.play();
+    } catch (err) {
+      console.warn('Voice preview failed:', err);
+      setPreviewingVoiceId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      previewAudioRef.current?.pause?.();
+      previewAudioRef.current = null;
+    };
+  }, []);
 
   const handleFinishAIRoom = () => {
     setPin('');
     setAiSessionKey('');
+    setSelectedVoiceId('');
+    setVoices([]);
     setAuthError(null);
+    setVoiceError(null);
     setScreenState('PIN_ENTRY');
   };
 
@@ -284,7 +342,13 @@ function App() {
     return (
       <SafeAreaProvider>
         <StatusBar barStyle="light-content" backgroundColor="#050A1A" />
-        <AIInterviewRoom sessionKey={aiSessionKey} onFinish={handleFinishAIRoom} />
+        <AIInterviewRoom
+          sessionKey={aiSessionKey}
+          initialVoiceId={selectedVoiceId}
+          voices={voices}
+          onVoiceChange={setSelectedVoiceId}
+          onFinish={handleFinishAIRoom}
+        />
       </SafeAreaProvider>
     );
   }
@@ -340,9 +404,93 @@ function App() {
                 <Clock />
               </View>
 
-              {/* Center PIN Workspace */}
+              {/* Center Interaction Workspace */}
               <View style={styles.rightCenter}>
-                <View style={styles.centerBox}>
+                {screenState === 'VOICE_SELECT' ? (
+                  <View style={styles.voiceSelectBox}>
+                    <Text style={styles.voiceEyebrow}>AI VOICE PROFILE</Text>
+                    <Text style={styles.voiceTitle}>Chọn giọng nói phỏng vấn</Text>
+                    <Text style={styles.voiceSubtitle}>
+                      Hãy chọn chất giọng bạn muốn nghe trong suốt buổi phỏng vấn. Bạn vẫn có thể đổi lại khi đang phỏng vấn.
+                    </Text>
+
+                    {isLoadingVoices ? (
+                      <Text style={styles.verifyingText}>Đang tải danh sách giọng đọc AI...</Text>
+                    ) : voiceError ? (
+                      <View style={styles.voiceErrorBox}>
+                        <Text style={styles.errorText}>{voiceError}</Text>
+                        <Pressable
+                          onPress={loadVoices}
+                          style={({ pressed }) => [styles.voiceRetryBtn, pressed && { opacity: 0.85 }]}
+                        >
+                          <Text style={styles.voiceRetryText}>Tải lại danh sách</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={styles.voiceGrid}>
+                        {voices.map(voice => {
+                          const selected = selectedVoiceId === voice.id;
+                          const previewing = previewingVoiceId === voice.id;
+
+                          return (
+                            <Pressable
+                              key={voice.id}
+                              onPress={() => setSelectedVoiceId(voice.id)}
+                              style={({ pressed }) => [
+                                styles.voiceCard,
+                                selected && styles.voiceCardSelected,
+                                pressed && { transform: [{ scale: 0.985 }], opacity: 0.92 },
+                              ]}
+                            >
+                              <View style={styles.voiceCardHeader}>
+                                <View style={[styles.voiceAvatar, selected && styles.voiceAvatarSelected]}>
+                                  <Text style={styles.voiceAvatarText}>{voice.name.slice(0, 1).toUpperCase()}</Text>
+                                </View>
+                                <View style={styles.voiceCardTitleWrap}>
+                                  <Text style={styles.voiceName}>{voice.name}</Text>
+                                  <Text style={styles.voiceMeta}>{selected ? 'Đang chọn' : 'Có thể chọn'}</Text>
+                                </View>
+                              </View>
+                              <Text style={styles.voiceDescription}>{voice.description}</Text>
+                              {Platform.OS === 'web' && (
+                                <Pressable
+                                  onPress={(event: any) => {
+                                    event?.stopPropagation?.();
+                                    handlePreviewVoice(voice);
+                                  }}
+                                  style={({ pressed }) => [styles.voicePreviewBtn, pressed && { opacity: 0.8 }]}
+                                >
+                                  <Text style={styles.voicePreviewText}>{previewing ? 'Đang nghe...' : 'Nghe thử'}</Text>
+                                </Pressable>
+                              )}
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+
+                    <View style={styles.voiceActionRow}>
+                      <Pressable
+                        onPress={handleVoiceSelectCancelled}
+                        style={({ pressed }) => [styles.voiceBackBtn, pressed && { opacity: 0.85 }]}
+                      >
+                        <Text style={styles.voiceBackText}>Quay lại</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={handleVoiceConfirmed}
+                        disabled={!selectedVoiceId || isLoadingVoices}
+                        style={({ pressed }) => [
+                          styles.voiceStartBtn,
+                          (!selectedVoiceId || isLoadingVoices) && styles.voiceStartBtnDisabled,
+                          pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+                        ]}
+                      >
+                        <Text style={styles.voiceStartText}>Bắt đầu phỏng vấn</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.centerBox}>
                   {/* Material Lock Open Icon */}
                   <LockOpenIcon />
 
@@ -404,17 +552,11 @@ function App() {
                       );
                     })}
                   </View>
-                </View>
+                  </View>
+                )}
               </View>
             </View>
           </View>
-
-          {/* Hardware Check Dialog Modal */}
-          <HardwareCheckModal
-            visible={screenState === 'HARDWARE_CHECK'}
-            onConfirm={handleHardwareConfirmed}
-            onCancel={handleHardwareCancelled}
-          />
         </KeyboardAvoidingView>
 
         <View style={styles.footerBar}>
@@ -571,6 +713,192 @@ function createStyles(isWide: boolean) {
       width: '100%',
       maxWidth: 480,
       alignItems: 'center',
+    },
+    voiceSelectBox: {
+      width: '100%',
+      maxWidth: isWide ? 660 : 430,
+      alignItems: 'center',
+      backgroundColor: 'rgba(5, 10, 26, 0.46)',
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.16)',
+      borderRadius: 24,
+      paddingHorizontal: isWide ? 30 : 20,
+      paddingVertical: isWide ? 30 : 22,
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.18,
+      shadowRadius: 34,
+      ...(Platform.OS === 'web' ? {
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+      } as any : {}),
+    },
+    voiceEyebrow: {
+      color: C.primaryDeep,
+      fontSize: 11,
+      fontWeight: '900',
+      letterSpacing: 2.6,
+      marginBottom: 10,
+    },
+    voiceTitle: {
+      color: C.primary,
+      fontSize: isWide ? 30 : 24,
+      fontWeight: '900',
+      letterSpacing: 0.4,
+      marginBottom: 10,
+      textAlign: 'center',
+    },
+    voiceSubtitle: {
+      color: C.onSurfaceVariant,
+      fontSize: isWide ? 14 : 13,
+      lineHeight: isWide ? 22 : 20,
+      textAlign: 'center',
+      maxWidth: 520,
+      marginBottom: 22,
+    },
+    voiceErrorBox: {
+      width: '100%',
+      alignItems: 'center',
+      paddingVertical: 12,
+    },
+    voiceRetryBtn: {
+      borderWidth: 1,
+      borderColor: 'rgba(0, 163, 255, 0.34)',
+      borderRadius: 999,
+      paddingHorizontal: 16,
+      paddingVertical: 9,
+      backgroundColor: 'rgba(0, 163, 255, 0.12)',
+    },
+    voiceRetryText: {
+      color: C.primary,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+    voiceGrid: {
+      width: '100%',
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+      justifyContent: 'center',
+      marginBottom: 22,
+    },
+    voiceCard: {
+      width: isWide ? '48%' : '100%',
+      minHeight: 138,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.14)',
+      backgroundColor: 'rgba(18, 28, 48, 0.52)',
+      padding: 15,
+    },
+    voiceCardSelected: {
+      borderColor: 'rgba(0, 163, 255, 0.7)',
+      backgroundColor: 'rgba(0, 163, 255, 0.13)',
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.28,
+      shadowRadius: 18,
+    },
+    voiceCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 10,
+    },
+    voiceAvatar: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.18)',
+      backgroundColor: 'rgba(152, 203, 255, 0.08)',
+    },
+    voiceAvatarSelected: {
+      borderColor: C.primary,
+      backgroundColor: 'rgba(152, 203, 255, 0.18)',
+    },
+    voiceAvatarText: {
+      color: C.primary,
+      fontSize: 16,
+      fontWeight: '900',
+    },
+    voiceCardTitleWrap: {
+      flex: 1,
+    },
+    voiceName: {
+      color: C.onSurface,
+      fontSize: 14,
+      fontWeight: '900',
+      marginBottom: 3,
+    },
+    voiceMeta: {
+      color: 'rgba(152, 203, 255, 0.72)',
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1.2,
+      textTransform: 'uppercase',
+    },
+    voiceDescription: {
+      color: C.onSurfaceVariant,
+      fontSize: 12,
+      lineHeight: 18,
+      minHeight: 38,
+      marginBottom: 12,
+    },
+    voicePreviewBtn: {
+      alignSelf: 'flex-start',
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.18)',
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      backgroundColor: 'rgba(152, 203, 255, 0.08)',
+    },
+    voicePreviewText: {
+      color: C.primary,
+      fontSize: 11,
+      fontWeight: '800',
+      letterSpacing: 0.6,
+    },
+    voiceActionRow: {
+      width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+    },
+    voiceBackBtn: {
+      borderRadius: 999,
+      paddingHorizontal: 18,
+      paddingVertical: 12,
+      borderWidth: 1,
+      borderColor: 'rgba(148, 163, 184, 0.2)',
+      backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    },
+    voiceBackText: {
+      color: C.onSurfaceVariant,
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    voiceStartBtn: {
+      flex: 1,
+      alignItems: 'center',
+      borderRadius: 999,
+      paddingHorizontal: 20,
+      paddingVertical: 13,
+      backgroundColor: C.primaryDeep,
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.38,
+      shadowRadius: 18,
+    },
+    voiceStartBtnDisabled: {
+      opacity: 0.42,
+    },
+    voiceStartText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '900',
+      letterSpacing: 0.8,
     },
 
     /* ── PIN Workspace ── */
