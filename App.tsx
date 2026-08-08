@@ -14,7 +14,6 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AIInterviewRoom } from './src/components/AIInterviewRoom';
 import {
@@ -23,6 +22,7 @@ import {
   resolveApiAssetUrl,
   type VoiceOption,
 } from './src/lib/api';
+import { playAudioUri, type AudioPlayerHandle } from './src/lib/audioPlayer';
 
 const PIN_LENGTH = 6;
 
@@ -425,85 +425,62 @@ function App() {
     }
   }, [resetPreviewWave, voicePreviewWaveLevels]);
 
-  const previewNativePlayerRef = useRef<any>(null);
+  const previewPlayerRef = useRef<AudioPlayerHandle | null>(null);
 
   const handlePreviewVoice = useCallback(async (voice: VoiceOption) => {
     setSelectedVoiceId(voice.id);
 
-    // Stop any existing native or web playback
-    if (previewNativePlayerRef.current) {
-      try {
-        previewNativePlayerRef.current.pause();
-        previewNativePlayerRef.current.remove();
-      } catch {}
-      previewNativePlayerRef.current = null;
+    // Stop any existing playback
+    if (previewPlayerRef.current) {
+      previewPlayerRef.current.stop();
+      previewPlayerRef.current = null;
     }
 
-    if (previewAudioRef.current) {
-      try {
-        previewAudioRef.current.pause();
-        previewAudioRef.current.currentTime = 0;
-      } catch {}
-      previewAudioRef.current = null;
+    if (previewingVoiceId === voice.id) {
+      setPreviewingVoiceId(null);
+      resetPreviewWave();
+      return;
     }
-    previewAudioSourceRef.current?.disconnect?.();
 
     const audioUrl = resolveApiAssetUrl(voice.previewUrl);
     setPreviewingVoiceId(voice.id);
 
-    if (Platform.OS === 'web') {
-      try {
-        const audio = new Audio(audioUrl);
-        (audio as any).playsInline = true;
-        audio.crossOrigin = 'anonymous';
-        previewAudioRef.current = audio;
-
-        audio.onended = () => {
-          setPreviewingVoiceId(null);
-          resetPreviewWave();
-        };
-        audio.onerror = () => {
-          setPreviewingVoiceId(null);
-          resetPreviewWave();
-        };
-        void audio.play().then(() => {
-          startPreviewWaveFromAudio(audio);
-        }).catch((playError: any) => {
-          console.warn('Voice preview playback blocked:', playError);
-          setPreviewingVoiceId(null);
-          resetPreviewWave();
-        });
-      } catch (err) {
-        console.warn('Voice preview failed:', err);
-        setPreviewingVoiceId(null);
-        resetPreviewWave();
-      }
-    } else {
-      // Native iOS / iPad / Android in Expo
-      try {
-        await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix' });
-        const player = createAudioPlayer({ uri: audioUrl }, { updateInterval: 200 });
-        previewNativePlayerRef.current = player;
-        const sub = player.addListener('playbackStatusUpdate', (status: any) => {
-          if (status.didJustFinish) {
-            sub?.remove();
-            try {
-              player.pause();
-              player.remove();
-            } catch {}
-            previewNativePlayerRef.current = null;
-            setPreviewingVoiceId(null);
-            resetPreviewWave();
+    try {
+      const handle = await playAudioUri(audioUrl, {
+        onStart: () => {
+          // If on web, start wave
+          if (Platform.OS === 'web') {
+            const drawFallback = () => {
+              const t = Date.now() / 300;
+              voicePreviewWaveLevels.forEach((level, index) => {
+                const energy = 0.38 + Math.abs(Math.sin(t * 2.2 + index * 0.72)) * 0.58;
+                level.setValue(energy);
+              });
+              previewWaveFrameRef.current = requestAnimationFrame(drawFallback);
+            };
+            drawFallback();
           }
-        });
-        player.play();
-      } catch (nativeErr) {
-        console.warn('Native voice preview failed:', nativeErr);
-        setPreviewingVoiceId(null);
-        resetPreviewWave();
-      }
+        },
+        onEnd: () => {
+          previewPlayerRef.current = null;
+          setPreviewingVoiceId(null);
+          resetPreviewWave();
+        },
+        onError: (err) => {
+          console.warn('Voice preview playback failed:', err);
+          previewPlayerRef.current = null;
+          setPreviewingVoiceId(null);
+          resetPreviewWave();
+        },
+      });
+      previewPlayerRef.current = handle;
+    } catch (err) {
+      console.warn('Voice preview failed:', err);
+      previewPlayerRef.current = null;
+      setPreviewingVoiceId(null);
+      resetPreviewWave();
     }
-  }, [resetPreviewWave, startPreviewWaveFromAudio]);
+  }, [previewingVoiceId, resetPreviewWave, voicePreviewWaveLevels]);
 
   useEffect(() => {
     if (!isVerifying) {
