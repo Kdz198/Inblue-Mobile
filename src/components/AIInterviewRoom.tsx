@@ -21,6 +21,7 @@ import {
 import { CyberCanvasBackground } from './CyberCanvasBackground';
 import { playTtsAudioBlob, type TtsPlayback } from '../lib/ttsAudio';
 import { requestMicrophonePermissionAsync } from '../lib/audioPlayer';
+import { startRealtimeTranscription, type RealtimeTranscriptionHandle } from '../lib/realtimeTranscription';
 
 interface AIInterviewRoomProps {
   sessionKey: string;
@@ -202,8 +203,8 @@ export function AIInterviewRoom({
 
   const scrollViewRef = useRef<ScrollView | null>(null);
   const transcriptScrollViewRef = useRef<ScrollView | null>(null);
-  const recognitionRef = useRef<any>(null);
   const speechResultsEnabledRef = useRef(false);
+  const realtimeTranscriptionRef = useRef<RealtimeTranscriptionHandle | null>(null);
   const recordingBaseTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
   const micAudioContextRef = useRef<any>(null);
@@ -261,8 +262,8 @@ export function AIInterviewRoom({
 
   useEffect(() => {
     return () => {
-      recognitionRef.current?.stop?.();
-      recognitionRef.current = null;
+      realtimeTranscriptionRef.current?.stop();
+      realtimeTranscriptionRef.current = null;
       speechResultsEnabledRef.current = false;
     };
   }, []);
@@ -609,15 +610,17 @@ export function AIInterviewRoom({
     if (isSubmitting || isFinished || isEvaluating) return;
 
     if (isRecording) {
-      speechResultsEnabledRef.current = false;
       try {
-        recognitionRef.current?.stop?.();
+        await realtimeTranscriptionRef.current?.stop();
       } catch {}
-      recognitionRef.current = null;
+      speechResultsEnabledRef.current = false;
+      realtimeTranscriptionRef.current = null;
       stopMicAudioMeter();
       setIsRecording(false);
-      if (answerInput.trim()) {
-        handleSubmitAnswer();
+      const completedAnswer = (finalTranscriptRef.current || answerInput).trim();
+      if (completedAnswer) {
+        setAnswerInput(completedAnswer);
+        handleSubmitAnswer(completedAnswer);
       }
       return;
     }
@@ -632,74 +635,43 @@ export function AIInterviewRoom({
     // 2. Start audio meter (Web Audio API or Native animated pulse)
     void startMicAudioMeter();
 
-    // 3. Web Speech Recognition if supported
-    if (Platform.OS === 'web' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
-      const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      try {
-        const recognition = new SpeechRec();
-        recognition.lang = 'vi-VN';
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        speechResultsEnabledRef.current = true;
-        recordingBaseTranscriptRef.current = answerInput.trim();
-        finalTranscriptRef.current = recordingBaseTranscriptRef.current;
+    speechResultsEnabledRef.current = true;
+    recordingBaseTranscriptRef.current = answerInput.trim();
+    finalTranscriptRef.current = recordingBaseTranscriptRef.current;
 
-        recognition.onresult = (event: any) => {
+    try {
+      realtimeTranscriptionRef.current = await startRealtimeTranscription(recordingBaseTranscriptRef.current, {
+        onTranscript: text => {
           if (!speechResultsEnabledRef.current) return;
-
-          const finalSegments: string[] = [];
-          let interimTranscript = '';
-
-          for (let i = 0; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              finalSegments.push(transcript);
-            } else {
-              interimTranscript += transcript;
-            }
-          }
-
-          const committedTranscript = [recordingBaseTranscriptRef.current, ...finalSegments]
-            .filter(Boolean)
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-          finalTranscriptRef.current = committedTranscript;
-          setAnswerInput(
-            [committedTranscript, interimTranscript]
-              .filter(Boolean)
-              .join(' ')
-              .replace(/\s+/g, ' ')
-              .trim()
-          );
-        };
-
-        recognition.onerror = (e: any) => {
-          console.warn('SpeechRecognition error:', e);
-        };
-
-        recognition.onend = () => {
-          if (speechResultsEnabledRef.current) {
-            try {
-              recognition.start();
-            } catch {}
-          }
-        };
-
-        recognitionRef.current = recognition;
-        recognition.start();
-      } catch (e) {
-        console.warn('SpeechRec start failed:', e);
-      }
+          finalTranscriptRef.current = text;
+          setAnswerInput(text);
+        },
+        onError: error => {
+          console.warn('Realtime transcription error:', error);
+        },
+        onClose: () => {
+          if (!speechResultsEnabledRef.current) return;
+          speechResultsEnabledRef.current = false;
+          realtimeTranscriptionRef.current = null;
+          stopMicAudioMeter();
+          setIsRecording(false);
+        },
+      });
+    } catch (e) {
+      console.warn('Realtime transcription start failed:', e);
+      speechResultsEnabledRef.current = false;
+      realtimeTranscriptionRef.current = null;
+      stopMicAudioMeter();
+      setIsRecording(false);
+      return;
     }
 
     setIsRecording(true);
   };
 
   // Submit Answer Action
-  const handleSubmitAnswer = async () => {
-    const textToSend = answerInput.trim() || 'Tôi đã hoàn thành câu trả lời.';
+  const handleSubmitAnswer = async (answerOverride?: string) => {
+    const textToSend = (answerOverride ?? answerInput).trim() || 'Tôi đã hoàn thành câu trả lời.';
     if (isSubmitting) return;
 
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -712,6 +684,10 @@ export function AIInterviewRoom({
 
     setMessages(prev => [...prev, userMsg]);
     speechResultsEnabledRef.current = false;
+    try {
+      await realtimeTranscriptionRef.current?.stop();
+    } catch {}
+    realtimeTranscriptionRef.current = null;
     setAnswerInput('');
     recordingBaseTranscriptRef.current = '';
     finalTranscriptRef.current = '';
@@ -1013,7 +989,7 @@ export function AIInterviewRoom({
                   <View style={styles.transcriptFooter}>
                     <Text style={styles.transcriptState}>{isRecording ? 'LISTENING...' : 'VOICE READY'}</Text>
                     <Pressable
-                      onPress={handleSubmitAnswer}
+                      onPress={() => handleSubmitAnswer()}
                       disabled={!answerInput.trim() || isSubmitting}
                       style={({ pressed }) => [
                         styles.sendAnswerBtn,
