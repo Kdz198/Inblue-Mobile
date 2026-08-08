@@ -21,6 +21,7 @@ import {
 import { CyberCanvasBackground } from './CyberCanvasBackground';
 import { playTtsAudioBlob, type TtsPlayback } from '../lib/ttsAudio';
 import { requestMicrophonePermissionAsync } from '../lib/audioPlayer';
+import { startNativeSTT, type NativeSTTHandle } from '../lib/nativeSTT';
 
 interface AIInterviewRoomProps {
   sessionKey: string;
@@ -165,8 +166,8 @@ export function AIInterviewRoom({
   const isShort = height <= 780;
   const isKioskCompact = height <= 820 || width <= 1024;
 
-  const botIconSize = isDesktop ? 60 : (isTablet ? 44 : 38);
-  const micIconSize = isTablet || isShort ? 20 : 24;
+  const botIconSize = isDesktop ? 72 : (isTablet ? 56 : 46);
+  const micIconSize = isDesktop ? 30 : (isTablet ? 26 : 24);
 
   const styles = useMemo(
     () =>
@@ -211,6 +212,7 @@ export function AIInterviewRoom({
   const micStreamRef = useRef<MediaStream | null>(null);
   const micWaveFrameRef = useRef<number | null>(null);
   const ttsPlaybackRef = useRef<TtsPlayback | null>(null);
+  const nativeSTTRef = useRef<NativeSTTHandle | null>(null);
 
   // Pulse animation for central AI Avatar Orb
   const orbScale = useRef(new Animated.Value(1)).current;
@@ -608,31 +610,64 @@ export function AIInterviewRoom({
   const toggleRecording = async () => {
     if (isSubmitting || isFinished || isEvaluating) return;
 
+    // ── STOP recording ──────────────────────────────────────────────────────
     if (isRecording) {
       speechResultsEnabledRef.current = false;
+
+      // Stop web recognition
       try {
         recognitionRef.current?.stop?.();
       } catch {}
       recognitionRef.current = null;
+
       stopMicAudioMeter();
       setIsRecording(false);
-      if (answerInput.trim()) {
+
+      // Stop native recording → get transcript
+      if (nativeSTTRef.current) {
+        setAnswerInput(prev => prev || '…'); // show loading indicator
+        try {
+          const transcript = await nativeSTTRef.current.stop();
+          nativeSTTRef.current = null;
+          if (transcript) {
+            const combined = [answerInput.trim(), transcript]
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            setAnswerInput(combined);
+            finalTranscriptRef.current = combined;
+            // Auto-submit after native STT
+            setTimeout(() => handleSubmitAnswer(), 50);
+          } else {
+            if (answerInput.trim() && answerInput !== '…') {
+              handleSubmitAnswer();
+            } else {
+              setAnswerInput('');
+            }
+          }
+        } catch {
+          nativeSTTRef.current = null;
+          if (answerInput.trim()) handleSubmitAnswer();
+        }
+      } else if (answerInput.trim()) {
         handleSubmitAnswer();
       }
       return;
     }
 
-    // 1. Request microphone permission (triggers native iOS/iPadOS dialog or browser prompt)
+    // ── START recording ──────────────────────────────────────────────────────
+
+    // 1. Request microphone permission
     try {
       await requestMicrophonePermissionAsync();
     } catch (permErr) {
       console.warn('Microphone permission request error:', permErr);
     }
 
-    // 2. Start audio meter (Web Audio API or Native animated pulse)
+    // 2. Start audio wave meter (Web AudioAPI or Native pulse)
     void startMicAudioMeter();
 
-    // 3. Web Speech Recognition if supported
+    // 3a. Web: use SpeechRecognition API
     if (Platform.OS === 'web' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       try {
@@ -681,9 +716,7 @@ export function AIInterviewRoom({
 
         recognition.onend = () => {
           if (speechResultsEnabledRef.current) {
-            try {
-              recognition.start();
-            } catch {}
+            try { recognition.start(); } catch {}
           }
         };
 
@@ -691,6 +724,25 @@ export function AIInterviewRoom({
         recognition.start();
       } catch (e) {
         console.warn('SpeechRec start failed:', e);
+      }
+    } else if (Platform.OS !== 'web') {
+      // 3b. Native (iOS/Android): use expo-av + backend STT
+      try {
+        setAnswerInput('');
+        recordingBaseTranscriptRef.current = '';
+        finalTranscriptRef.current = '';
+        const sttHandle = await startNativeSTT({
+          onInterimTranscript: (text) => {
+            if (text === '…') {
+              // Just a heartbeat, don't update input
+            }
+          },
+          sessionKey,
+        });
+        nativeSTTRef.current = sttHandle;
+      } catch (e) {
+        console.warn('Native STT start failed:', e);
+        nativeSTTRef.current = null;
       }
     }
 
@@ -1003,15 +1055,25 @@ export function AIInterviewRoom({
                     nestedScrollEnabled
                   >
                     <Text style={styles.transcriptText}>
-                      {answerInput.trim()
+                      {answerInput.trim() && answerInput !== '…'
                         ? `"${answerInput.trim()}"`
+                        : answerInput === '…'
+                        ? '"Đang xử lý giọng nói..."'
                         : isRecording
-                        ? '"Đang lắng nghe câu trả lời của bạn..."'
+                        ? (Platform.OS === 'web'
+                            ? '"Đang lắng nghe câu trả lời của bạn..."'
+                            : '"Đang ghi âm... Nhấn mic lần nữa để gửi."')
                         : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
                     </Text>
                   </ScrollView>
                   <View style={styles.transcriptFooter}>
-                    <Text style={styles.transcriptState}>{isRecording ? 'LISTENING...' : 'VOICE READY'}</Text>
+                    <Text style={styles.transcriptState}>
+                      {answerInput === '…'
+                        ? 'PROCESSING...'
+                        : isRecording
+                        ? (Platform.OS === 'web' ? 'LISTENING...' : 'RECORDING...')
+                        : 'VOICE READY'}
+                    </Text>
                     <Pressable
                       onPress={handleSubmitAnswer}
                       disabled={!answerInput.trim() || isSubmitting}
@@ -1357,8 +1419,8 @@ function createRoomStyles({
       width: '100%',
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: isDesktop ? 14 : (isTablet ? 10 : 4),
-      marginBottom: isDesktop ? 12 : (isTablet ? 8 : 4),
+      marginTop: isDesktop ? 18 : (isTablet ? 14 : 6),
+      marginBottom: isDesktop ? 8 : (isTablet ? 6 : 3),
     },
     interviewFocusStackCompact: {
       marginTop: 2,
@@ -1368,27 +1430,27 @@ function createRoomStyles({
       alignItems: 'center',
       justifyContent: 'center',
       position: 'relative',
-      width: isDesktop ? 226 : (isTablet ? 172 : (isShort ? 148 : 166)),
-      height: isDesktop ? 226 : (isTablet ? 172 : (isShort ? 148 : 166)),
+      width: isDesktop ? 264 : (isTablet ? 210 : (isShort ? 178 : 196)),
+      height: isDesktop ? 264 : (isTablet ? 210 : (isShort ? 178 : 196)),
       marginTop: isDesktop ? 8 : (isTablet ? 6 : 4),
     },
     aiHolographicNodeCompact: {
-      width: isDesktop ? 200 : (isTablet ? 160 : 144),
-      height: isDesktop ? 200 : (isTablet ? 160 : 144),
+      width: isDesktop ? 240 : (isTablet ? 192 : 168),
+      height: isDesktop ? 240 : (isTablet ? 192 : 168),
       marginTop: 2,
     },
     aiWaveRing: {
       position: 'absolute',
-      width: isDesktop ? 212 : (isTablet ? 160 : 138),
-      height: isDesktop ? 212 : (isTablet ? 160 : 138),
+      width: isDesktop ? 250 : (isTablet ? 196 : 170),
+      height: isDesktop ? 250 : (isTablet ? 196 : 170),
       borderRadius: 999,
       borderWidth: 1,
       borderColor: 'rgba(0, 163, 255, 0.16)',
     },
     aiSpeechAura: {
       position: 'absolute',
-      width: isDesktop ? 182 : (isTablet ? 138 : 118),
-      height: isDesktop ? 182 : (isTablet ? 138 : 118),
+      width: isDesktop ? 220 : (isTablet ? 172 : 148),
+      height: isDesktop ? 220 : (isTablet ? 172 : 148),
       borderRadius: 999,
       borderWidth: 1,
       borderColor: 'rgba(152, 203, 255, 0.32)',
@@ -1399,14 +1461,14 @@ function createRoomStyles({
     },
     aiOrbHalo: {
       position: 'absolute',
-      width: isDesktop ? 162 : (isTablet ? 122 : 106),
-      height: isDesktop ? 162 : (isTablet ? 122 : 106),
+      width: isDesktop ? 196 : (isTablet ? 152 : 132),
+      height: isDesktop ? 196 : (isTablet ? 152 : 132),
       borderRadius: 999,
       backgroundColor: 'rgba(0, 163, 255, 0.18)',
     },
     aiOrbSphere: {
-      width: isDesktop ? 142 : (isTablet ? 104 : 90),
-      height: isDesktop ? 142 : (isTablet ? 104 : 90),
+      width: isDesktop ? 172 : (isTablet ? 132 : 114),
+      height: isDesktop ? 172 : (isTablet ? 132 : 114),
       borderRadius: 999,
       backgroundColor: '#0F172A',
       borderWidth: 1.5,
@@ -1416,12 +1478,12 @@ function createRoomStyles({
       shadowColor: '#00A3FF',
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.7,
-      shadowRadius: isDesktop ? 28 : 18,
+      shadowRadius: isDesktop ? 36 : 22,
       elevation: 8,
     },
     aiOrbInnerAura: {
-      width: isDesktop ? 94 : (isTablet ? 68 : 58),
-      height: isDesktop ? 94 : (isTablet ? 68 : 58),
+      width: isDesktop ? 114 : (isTablet ? 86 : 74),
+      height: isDesktop ? 114 : (isTablet ? 86 : 74),
       borderRadius: 999,
       backgroundColor: 'rgba(0, 163, 255, 0.16)',
       alignItems: 'center',
@@ -1568,8 +1630,8 @@ function createRoomStyles({
       transform: [{ translateY: isTablet || isConstrainedHeight ? 0 : -4 }],
     },
     micOrbButton: {
-      width: isDesktop ? 48 : (isTablet ? 40 : 38),
-      height: isDesktop ? 48 : (isTablet ? 40 : 38),
+      width: isDesktop ? 60 : (isTablet ? 52 : 48),
+      height: isDesktop ? 60 : (isTablet ? 52 : 48),
       borderRadius: 999,
       alignItems: 'center',
       justifyContent: 'center',
