@@ -9,6 +9,20 @@ export interface PlayAudioOptions {
   onError?: (error: any) => void;
 }
 
+export async function requestMicrophonePermissionAsync(): Promise<boolean> {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      return false;
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(track => track.stop());
+    return true;
+  } catch (error) {
+    console.warn('Microphone permission not granted on web:', error);
+    return false;
+  }
+}
+
 export async function playAudioUri(
   uri: string,
   options: PlayAudioOptions = {}

@@ -20,6 +20,7 @@ import {
 } from '../lib/api';
 import { CyberCanvasBackground } from './CyberCanvasBackground';
 import { playTtsAudioBlob, type TtsPlayback } from '../lib/ttsAudio';
+import { requestMicrophonePermissionAsync } from '../lib/audioPlayer';
 
 interface AIInterviewRoomProps {
   sessionKey: string;
@@ -315,8 +316,15 @@ export function AIInterviewRoom({
     });
   }, [audioWaveLevels]);
 
+  const nativeWaveIntervalRef = useRef<any>(null);
+
   const stopMicAudioMeter = useCallback(() => {
-    if (micWaveFrameRef.current !== null && Platform.OS === 'web') {
+    if (nativeWaveIntervalRef.current) {
+      clearInterval(nativeWaveIntervalRef.current);
+      nativeWaveIntervalRef.current = null;
+    }
+
+    if (micWaveFrameRef.current !== null && typeof window !== 'undefined') {
       window.cancelAnimationFrame(micWaveFrameRef.current);
       micWaveFrameRef.current = null;
     }
@@ -334,15 +342,23 @@ export function AIInterviewRoom({
   }, [resetAudioWave]);
 
   const startMicAudioMeter = useCallback(async () => {
+    stopMicAudioMeter();
+
+    if (Platform.OS !== 'web') {
+      // Native audio visualizer animation loop
+      nativeWaveIntervalRef.current = setInterval(() => {
+        const randomEnergy = 0.28 + Math.random() * 0.54;
+        setAudioWaveEnergy(randomEnergy);
+      }, 120);
+      return;
+    }
+
     if (
-      Platform.OS !== 'web' ||
       !('mediaDevices' in navigator) ||
       !navigator.mediaDevices?.getUserMedia
     ) {
       return;
     }
-
-    stopMicAudioMeter();
 
     try {
       const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -589,92 +605,96 @@ export function AIInterviewRoom({
   }, [sessionKey]);
 
   // Speech-To-Text (STT) Recording Toggle
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (isSubmitting || isFinished || isEvaluating) return;
 
+    if (isRecording) {
+      speechResultsEnabledRef.current = false;
+      try {
+        recognitionRef.current?.stop?.();
+      } catch {}
+      recognitionRef.current = null;
+      stopMicAudioMeter();
+      setIsRecording(false);
+      if (answerInput.trim()) {
+        handleSubmitAnswer();
+      }
+      return;
+    }
+
+    // 1. Request microphone permission (triggers native iOS/iPadOS dialog or browser prompt)
+    try {
+      await requestMicrophonePermissionAsync();
+    } catch (permErr) {
+      console.warn('Microphone permission request error:', permErr);
+    }
+
+    // 2. Start audio meter (Web Audio API or Native animated pulse)
+    void startMicAudioMeter();
+
+    // 3. Web Speech Recognition if supported
     if (Platform.OS === 'web' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!isRecording) {
-        try {
-          const recognition = new SpeechRec();
-          recognition.lang = 'vi-VN';
-          recognition.continuous = true;
-          recognition.interimResults = true;
-          speechResultsEnabledRef.current = true;
-          recordingBaseTranscriptRef.current = answerInput.trim();
-          finalTranscriptRef.current = recordingBaseTranscriptRef.current;
-          recognition.onresult = (event: any) => {
-            if (!speechResultsEnabledRef.current) return;
+      try {
+        const recognition = new SpeechRec();
+        recognition.lang = 'vi-VN';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        speechResultsEnabledRef.current = true;
+        recordingBaseTranscriptRef.current = answerInput.trim();
+        finalTranscriptRef.current = recordingBaseTranscriptRef.current;
 
-            const finalSegments: string[] = [];
-            let interimTranscript = '';
+        recognition.onresult = (event: any) => {
+          if (!speechResultsEnabledRef.current) return;
 
-            for (let i = 0; i < event.results.length; i++) {
-              const transcript = event.results[i][0].transcript;
-              if (event.results[i].isFinal) {
-                finalSegments.push(transcript);
-              } else {
-                interimTranscript += transcript;
-              }
+          const finalSegments: string[] = [];
+          let interimTranscript = '';
+
+          for (let i = 0; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalSegments.push(transcript);
+            } else {
+              interimTranscript += transcript;
             }
+          }
 
-            const committedTranscript = [recordingBaseTranscriptRef.current, ...finalSegments]
+          const committedTranscript = [recordingBaseTranscriptRef.current, ...finalSegments]
+            .filter(Boolean)
+            .join(' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          finalTranscriptRef.current = committedTranscript;
+          setAnswerInput(
+            [committedTranscript, interimTranscript]
               .filter(Boolean)
               .join(' ')
               .replace(/\s+/g, ' ')
-              .trim();
+              .trim()
+          );
+        };
 
-            finalTranscriptRef.current = committedTranscript;
-            setAnswerInput(
-              [committedTranscript, interimTranscript]
-                .filter(Boolean)
-                .join(' ')
-                .replace(/\s+/g, ' ')
-                .trim()
-            );
-          };
-          recognition.onerror = () => {
-            recognitionRef.current = null;
-            speechResultsEnabledRef.current = false;
-            setIsRecording(false);
-            stopMicAudioMeter();
-          };
-          recognition.onend = () => {
-            recognitionRef.current = null;
-            speechResultsEnabledRef.current = false;
-            setIsRecording(false);
-            stopMicAudioMeter();
-          };
-          recognitionRef.current = recognition;
-          recognition.start();
-          void startMicAudioMeter();
-          setIsRecording(true);
-        } catch (e) {
-          console.warn(e);
-          recognitionRef.current = null;
-          speechResultsEnabledRef.current = false;
-          stopMicAudioMeter();
-          setIsRecording(!isRecording);
-        }
-      } else {
-        speechResultsEnabledRef.current = false;
-        recognitionRef.current?.stop?.();
-        recognitionRef.current = null;
-        stopMicAudioMeter();
-        setIsRecording(false);
-        if (answerInput.trim()) {
-          handleSubmitAnswer();
-        }
-      }
-    } else {
-      if (isRecording && answerInput.trim()) {
-        speechResultsEnabledRef.current = false;
-        stopMicAudioMeter();
-        handleSubmitAnswer();
-      } else {
-        setIsRecording(!isRecording);
+        recognition.onerror = (e: any) => {
+          console.warn('SpeechRecognition error:', e);
+        };
+
+        recognition.onend = () => {
+          if (speechResultsEnabledRef.current) {
+            try {
+              recognition.start();
+            } catch {}
+          }
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+      } catch (e) {
+        console.warn('SpeechRec start failed:', e);
       }
     }
+
+    setIsRecording(true);
   };
 
   // Submit Answer Action
@@ -1310,13 +1330,13 @@ function createRoomStyles({
       alignItems: 'center',
       position: 'relative',
       paddingHorizontal: 0,
-      paddingTop: isDesktop ? 6 : 2,
-      paddingBottom: isDesktop ? 6 : 2,
+      paddingTop: isDesktop ? 16 : (isTablet ? 12 : 8),
+      paddingBottom: isDesktop ? 16 : (isTablet ? 12 : 8),
       backgroundColor: 'rgba(2, 8, 23, 0.1)',
     },
     stageAreaCompact: {
-      paddingTop: 0,
-      paddingBottom: 2,
+      paddingTop: 4,
+      paddingBottom: 4,
     },
 
     /* ── Central Hologram Node & Orb ── */
@@ -1327,7 +1347,8 @@ function createRoomStyles({
       maxWidth: isDesktop ? 700 : (isTablet ? 600 : 480),
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingVertical: 0,
+      paddingTop: isDesktop ? 6 : (isTablet ? 4 : 2),
+      paddingBottom: isDesktop ? 8 : (isTablet ? 6 : 4),
     },
     activeStageWrapperCompact: {
       maxWidth: isDesktop ? 680 : (isTablet ? 580 : 480),
@@ -1336,9 +1357,11 @@ function createRoomStyles({
       width: '100%',
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: isTablet || isConstrainedHeight ? 4 : 8,
+      marginTop: isDesktop ? 14 : (isTablet ? 10 : 4),
+      marginBottom: isDesktop ? 12 : (isTablet ? 8 : 4),
     },
     interviewFocusStackCompact: {
+      marginTop: 2,
       marginBottom: 2,
     },
     aiHolographicNode: {
@@ -1347,7 +1370,7 @@ function createRoomStyles({
       position: 'relative',
       width: isDesktop ? 226 : (isTablet ? 172 : (isShort ? 148 : 166)),
       height: isDesktop ? 226 : (isTablet ? 172 : (isShort ? 148 : 166)),
-      marginTop: isTablet || isConstrainedHeight ? 2 : 6,
+      marginTop: isDesktop ? 8 : (isTablet ? 6 : 4),
     },
     aiHolographicNodeCompact: {
       width: isDesktop ? 200 : (isTablet ? 160 : 144),
@@ -1413,10 +1436,10 @@ function createRoomStyles({
       borderWidth: 1,
       borderColor: 'rgba(0, 163, 255, 0.36)',
       borderRadius: 10,
-      paddingHorizontal: isDesktop ? 26 : (isTablet ? 16 : 12),
-      paddingTop: isDesktop ? 14 : (isTablet ? 9 : 8),
-      paddingBottom: isDesktop ? 16 : (isTablet ? 10 : 8),
-      marginBottom: isDesktop ? 10 : (isTablet ? 6 : 4),
+      paddingHorizontal: isDesktop ? 26 : (isTablet ? 18 : 14),
+      paddingTop: isDesktop ? 14 : (isTablet ? 10 : 8),
+      paddingBottom: isDesktop ? 16 : (isTablet ? 11 : 9),
+      marginBottom: isDesktop ? 14 : (isTablet ? 10 : 6),
       alignItems: 'center',
       position: 'relative',
       shadowColor: '#00A3FF',
@@ -1524,14 +1547,17 @@ function createRoomStyles({
       fontSize: isDesktop ? 10 : 9,
       fontWeight: '500',
       textAlign: 'center',
-      marginTop: 2,
+      marginTop: isDesktop ? 6 : (isTablet ? 4 : 3),
+      marginBottom: 2,
     },
 
     /* ── Voice Interaction Hub ── */
     voiceInteractionHub: {
       width: '100%',
       alignItems: 'center',
-      gap: isDesktop ? 9 : 5,
+      gap: isDesktop ? 10 : (isTablet ? 8 : 6),
+      paddingHorizontal: isDesktop ? 12 : (isTablet ? 8 : 4),
+      marginBottom: isDesktop ? 8 : (isTablet ? 6 : 4),
     },
     voiceInteractionHubCompact: {
       gap: 4,
@@ -1568,8 +1594,9 @@ function createRoomStyles({
       justifyContent: 'center',
       gap: 2.5,
       width: 96,
-      height: isDesktop ? 30 : 20,
-      marginTop: isTablet || isConstrainedHeight ? 6 : 12,
+      height: isDesktop ? 28 : 20,
+      marginTop: isDesktop ? 8 : (isTablet ? 6 : 4),
+      marginBottom: isDesktop ? 4 : (isTablet ? 3 : 2),
       position: 'relative',
     },
     micWaveBaseline: {
@@ -1606,14 +1633,14 @@ function createRoomStyles({
     liveTranscriptHud: {
       width: '100%',
       maxWidth: '100%',
-      minHeight: isDesktop ? 116 : (isTablet ? 90 : 84),
-      maxHeight: isDesktop ? 148 : (isTablet ? 118 : 108),
+      minHeight: isDesktop ? 116 : (isTablet ? 94 : 86),
+      maxHeight: isDesktop ? 150 : (isTablet ? 122 : 110),
       flexShrink: 0,
       backgroundColor: 'rgba(5, 10, 26, 0.68)',
       borderWidth: 1,
       borderColor: 'rgba(0, 163, 255, 0.22)',
       borderRadius: 8,
-      padding: isDesktop ? 14 : (isTablet ? 10 : 8),
+      padding: isDesktop ? 14 : (isTablet ? 11 : 9),
       position: 'relative',
       shadowColor: '#000',
       shadowOpacity: 0.38,

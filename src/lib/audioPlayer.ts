@@ -1,4 +1,10 @@
-import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+  getRecordingPermissionsAsync,
+  type AudioPlayer,
+} from 'expo-audio';
 
 export interface AudioPlayerHandle {
   stop: () => void;
@@ -9,6 +15,25 @@ export interface PlayAudioOptions {
   onVolume?: (level: number) => void;
   onEnd?: () => void;
   onError?: (error: any) => void;
+}
+
+export async function requestMicrophonePermissionAsync(): Promise<boolean> {
+  try {
+    await setAudioModeAsync({
+      allowsRecording: true,
+      playsInSilentMode: true,
+      interruptionMode: 'doNotMix',
+    });
+    const current = await getRecordingPermissionsAsync();
+    if (current.granted || current.status === 'granted') {
+      return true;
+    }
+    const requested = await requestRecordingPermissionsAsync();
+    return requested.granted || requested.status === 'granted';
+  } catch (error) {
+    console.warn('Failed to request native recording permissions:', error);
+    return false;
+  }
 }
 
 function blobToDataUri(blob: Blob): Promise<string> {
