@@ -48,6 +48,7 @@ yarn-error.log
 
 # Bundle artifact
 *.jsbundle
+dist/
 dist-web/
 
 # Ruby / CocoaPods

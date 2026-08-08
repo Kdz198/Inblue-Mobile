@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -253,8 +254,11 @@ function RealTimeDateWidget({ styles }: { styles: any }) {
 
 /* ───── Main App Controller ───── */
 function App() {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const isWide = width >= 768;
+  const isTablet = width >= 768 && width < 1200;
+  const isDesktop = width >= 1200;
+  const isShort = height < 800;
 
   const [screenState, setScreenState] = useState<AppScreenState>('PIN_ENTRY');
   const [pin, setPin] = useState('');
@@ -550,7 +554,10 @@ function App() {
   };
 
   const safeVoices = Array.isArray(voices) ? voices : [];
-  const styles = useMemo(() => createStyles(isWide), [isWide]);
+  const styles = useMemo(
+    () => createStyles({ width, height, isWide, isTablet, isDesktop, isShort }),
+    [width, height, isWide, isTablet, isDesktop, isShort]
+  );
   const activeInitState = KIOSK_INIT_STATES[initStepIndex % KIOSK_INIT_STATES.length];
   const initPulseScale = initPulse.interpolate({
     inputRange: [0, 1],
@@ -638,7 +645,13 @@ function App() {
               )}
 
               {/* Center Interaction Workspace */}
-              <View style={styles.rightCenter}>
+              <ScrollView
+                style={styles.rightScroll}
+                contentContainerStyle={styles.rightCenter}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                bounces={false}
+              >
                 {screenState === 'VOICE_SELECT' ? (
                   <View style={styles.voiceSelectBox}>
                     <Text style={styles.voiceEyebrow}>AI VOICE PROFILE</Text>
@@ -685,11 +698,11 @@ function App() {
                                   <Text style={styles.voiceAvatarText}>{voice.name.slice(0, 1).toUpperCase()}</Text>
                                 </View>
                                 <View style={styles.voiceCardTitleWrap}>
-                                  <Text style={styles.voiceName}>{voice.name}</Text>
+                                  <Text style={styles.voiceName} numberOfLines={1} ellipsizeMode="tail">{voice.name}</Text>
                                   <Text style={styles.voiceMeta}>{selected ? 'Đang chọn' : 'Có thể chọn'}</Text>
                                 </View>
                               </View>
-                              <Text style={styles.voiceDescription}>{voice.description}</Text>
+                              <Text style={styles.voiceDescription} numberOfLines={2} ellipsizeMode="tail">{voice.description}</Text>
                               <View style={styles.voiceCardFooter}>
                                 <View style={[styles.voiceSignal, selected && styles.voiceSignalActive, previewing && styles.voiceSignalPlaying]}>
                                   {voicePreviewWaveLevels.map((level, barIndex) => (
@@ -821,7 +834,6 @@ function App() {
                           return (
                             <Pressable
                               key={k}
-                              delayPressIn={0}
                               onPress={() => pressKey(k)}
                               style={({ pressed }) => [
                                 styles.key,
@@ -847,7 +859,7 @@ function App() {
                   )}
                   </View>
                 )}
-              </View>
+              </ScrollView>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -897,11 +909,20 @@ const s = StyleSheet.create({
   },
 });
 
-function createStyles(isWide: boolean) {
+interface ResponsiveParams {
+  width: number;
+  height: number;
+  isWide: boolean;
+  isTablet: boolean;
+  isDesktop: boolean;
+  isShort: boolean;
+}
+
+function createStyles({ width, height, isWide, isTablet, isDesktop, isShort }: ResponsiveParams) {
   return StyleSheet.create({
     pureDateText: {
       color: '#98cbff',
-      fontSize: isWide ? 28 : 20,
+      fontSize: isDesktop ? 28 : (isTablet ? 20 : 16),
       fontWeight: '800',
       fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
       letterSpacing: 2,
@@ -919,17 +940,17 @@ function createStyles(isWide: boolean) {
 
     /* ── Left Panel ── */
     leftPanel: {
-      flex: isWide ? 0.5 : undefined,
-      minHeight: isWide ? undefined : 200,
+      flex: isDesktop ? 0.44 : (isTablet ? 0.36 : undefined),
+      minHeight: isWide ? undefined : 180,
       justifyContent: 'space-between',
-      padding: isWide ? 64 : 28,
+      padding: isDesktop ? 56 : (isTablet ? 32 : 24),
       position: 'relative',
       overflow: 'hidden',
     },
     dateContainer: {
       position: 'absolute',
-      top: isWide ? 64 : 20,
-      right: isWide ? 56 : 24,
+      top: isDesktop ? 56 : 24,
+      right: isDesktop ? 48 : 20,
       zIndex: 10,
     },
     leftHeaderGroup: {
@@ -938,17 +959,17 @@ function createStyles(isWide: boolean) {
     },
     brandLogo: {
       color: C.primary,
-      fontSize: isWide ? 84 : 44,
+      fontSize: isDesktop ? 76 : (isTablet ? 48 : 36),
       fontWeight: '900',
-      letterSpacing: -2,
-      marginBottom: 12,
+      letterSpacing: -1.5,
+      marginBottom: isTablet ? 8 : 12,
     },
     heroTitle: {
       color: C.onSurface,
-      fontSize: isWide ? 50 : 28,
+      fontSize: isDesktop ? 44 : (isTablet ? 30 : 24),
       fontWeight: '800',
-      lineHeight: isWide ? 58 : 34,
-      marginBottom: 20,
+      lineHeight: isDesktop ? 52 : (isTablet ? 38 : 30),
+      marginBottom: isTablet ? 14 : 20,
     },
     statusPill: {
       flexDirection: 'row',
@@ -959,8 +980,8 @@ function createStyles(isWide: boolean) {
       borderWidth: 1,
       borderColor: C.white10,
       borderRadius: 999,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
+      paddingHorizontal: isTablet ? 12 : 16,
+      paddingVertical: isTablet ? 6 : 8,
       ...(Platform.OS === 'web' ? {
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
@@ -974,13 +995,14 @@ function createStyles(isWide: boolean) {
     },
     statusLabel: {
       color: C.primary,
-      fontSize: 14,
+      fontSize: isTablet ? 12 : 14,
       fontWeight: '600',
       letterSpacing: 0.7,
     },
+
     /* ── Right Panel ── */
     rightPanel: {
-      flex: isWide ? 0.5 : 1,
+      flex: isDesktop ? 0.56 : (isTablet ? 0.64 : 1),
       backgroundColor: C.bg,
       borderLeftWidth: isWide ? 1 : 0,
       borderTopWidth: isWide ? 0 : 1,
@@ -988,19 +1010,23 @@ function createStyles(isWide: boolean) {
       position: 'relative',
       overflow: 'hidden',
     },
+    rightScroll: {
+      flex: 1,
+      width: '100%',
+    },
     clockContainer: {
       position: 'absolute',
-      top: isWide ? 64 : 16,
-      right: isWide ? 64 : 16,
+      top: isDesktop ? 48 : (isTablet ? 20 : 14),
+      right: isDesktop ? 48 : (isTablet ? 20 : 14),
       zIndex: 10,
     },
     rightCenter: {
-      flex: 1,
+      flexGrow: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: isWide ? 48 : 20,
-      paddingTop: isWide ? 80 : 60,
-      paddingBottom: 24,
+      paddingHorizontal: isDesktop ? 36 : (isTablet ? 20 : 16),
+      paddingTop: isDesktop ? 48 : (isTablet ? 24 : 20),
+      paddingBottom: isDesktop ? 32 : (isTablet ? 20 : 16),
     },
     centerBox: {
       width: '100%',
@@ -1009,14 +1035,14 @@ function createStyles(isWide: boolean) {
     },
     voiceSelectBox: {
       width: '100%',
-      maxWidth: isWide ? 720 : 430,
+      maxWidth: isDesktop ? 760 : (isTablet ? 640 : 430),
       alignItems: 'center',
       backgroundColor: 'rgba(5, 10, 26, 0.46)',
       borderWidth: 1,
       borderColor: 'rgba(152, 203, 255, 0.16)',
-      borderRadius: 24,
-      paddingHorizontal: isWide ? 34 : 20,
-      paddingVertical: isWide ? 32 : 22,
+      borderRadius: 20,
+      paddingHorizontal: isDesktop ? 28 : (isTablet ? 18 : 16),
+      paddingVertical: isDesktop ? 22 : (isTablet ? 16 : 14),
       shadowColor: C.primaryDeep,
       shadowOpacity: 0.18,
       shadowRadius: 34,
@@ -1027,26 +1053,26 @@ function createStyles(isWide: boolean) {
     },
     voiceEyebrow: {
       color: C.primaryDeep,
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '900',
-      letterSpacing: 2.6,
-      marginBottom: 10,
+      letterSpacing: 2.2,
+      marginBottom: 6,
     },
     voiceTitle: {
       color: C.primary,
-      fontSize: isWide ? 30 : 24,
+      fontSize: isDesktop ? 26 : (isTablet ? 21 : 18),
       fontWeight: '900',
-      letterSpacing: 0.4,
-      marginBottom: 10,
+      letterSpacing: 0.3,
+      marginBottom: 6,
       textAlign: 'center',
     },
     voiceSubtitle: {
       color: C.onSurfaceVariant,
-      fontSize: isWide ? 14 : 13,
-      lineHeight: isWide ? 22 : 20,
+      fontSize: isDesktop ? 13 : (isTablet ? 12 : 11),
+      lineHeight: isDesktop ? 19 : (isTablet ? 17 : 16),
       textAlign: 'center',
-      maxWidth: 520,
-      marginBottom: 22,
+      maxWidth: isDesktop ? 520 : 460,
+      marginBottom: isShort ? 12 : 16,
     },
     voiceErrorBox: {
       width: '100%',
@@ -1070,18 +1096,19 @@ function createStyles(isWide: boolean) {
       width: '100%',
       flexDirection: 'row',
       flexWrap: 'wrap',
-      gap: 14,
-      justifyContent: 'center',
-      marginBottom: 24,
+      justifyContent: 'space-between',
+      rowGap: isDesktop ? 12 : 8,
+      columnGap: isDesktop ? 12 : 8,
+      marginBottom: isShort ? 14 : 18,
     },
     voiceCard: {
-      width: isWide ? '47.8%' : '100%',
-      minHeight: 162,
-      borderRadius: 20,
+      width: isWide ? '48.5%' : '100%',
+      minHeight: isDesktop ? 148 : (isTablet ? 126 : 120),
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: 'rgba(152, 203, 255, 0.16)',
       backgroundColor: 'rgba(9, 18, 36, 0.72)',
-      padding: 16,
+      padding: isDesktop ? 14 : (isTablet ? 11 : 10),
       overflow: 'hidden',
     },
     voiceCardSelected: {
@@ -1095,36 +1122,36 @@ function createStyles(isWide: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 12,
+      marginBottom: isDesktop ? 8 : 5,
     },
     voiceCode: {
       color: 'rgba(152, 203, 255, 0.62)',
-      fontSize: 10,
+      fontSize: 9,
       fontWeight: '900',
-      letterSpacing: 1.8,
+      letterSpacing: 1.4,
     },
     voiceSelectedPill: {
       color: C.primary,
-      fontSize: 9,
+      fontSize: 8.5,
       fontWeight: '900',
-      letterSpacing: 1.2,
+      letterSpacing: 1,
       borderWidth: 1,
       borderColor: 'rgba(152, 203, 255, 0.34)',
       borderRadius: 999,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
+      paddingHorizontal: 7,
+      paddingVertical: 2,
       backgroundColor: 'rgba(152, 203, 255, 0.1)',
     },
     voiceCardHeader: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 14,
-      marginBottom: 12,
+      gap: isDesktop ? 10 : 8,
+      marginBottom: isDesktop ? 8 : 5,
     },
     voiceAvatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
+      width: isDesktop ? 42 : 36,
+      height: isDesktop ? 42 : 36,
+      borderRadius: 999,
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
@@ -1140,44 +1167,45 @@ function createStyles(isWide: boolean) {
     },
     voiceAvatarText: {
       color: C.primary,
-      fontSize: 19,
+      fontSize: isDesktop ? 16 : 14,
       fontWeight: '900',
     },
     voiceCardTitleWrap: {
       flex: 1,
+      minWidth: 0,
     },
     voiceName: {
       color: C.onSurface,
-      fontSize: 15,
-      fontWeight: '900',
-      marginBottom: 4,
+      fontSize: isDesktop ? 14 : 12.5,
+      fontWeight: '800',
+      marginBottom: 2,
     },
     voiceMeta: {
       color: 'rgba(152, 203, 255, 0.72)',
-      fontSize: 10,
+      fontSize: 9,
       fontWeight: '800',
-      letterSpacing: 1.2,
+      letterSpacing: 1,
       textTransform: 'uppercase',
     },
     voiceDescription: {
       color: C.onSurfaceVariant,
-      fontSize: 12,
-      lineHeight: 18,
-      minHeight: 44,
-      marginBottom: 14,
+      fontSize: isDesktop ? 11.5 : 10.5,
+      lineHeight: isDesktop ? 16 : 14.5,
+      minHeight: isDesktop ? 32 : 28,
+      marginBottom: isDesktop ? 8 : 5,
     },
     voiceCardFooter: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      gap: 10,
+      gap: 8,
       marginTop: 'auto',
     },
     voiceSignal: {
       flexDirection: 'row',
       alignItems: 'center',
-      height: 28,
-      gap: 4,
+      height: 20,
+      gap: 3,
       opacity: 0.48,
     },
     voiceSignalActive: {
@@ -1187,23 +1215,23 @@ function createStyles(isWide: boolean) {
       opacity: 1,
     },
     voiceSignalBar: {
-      width: 4,
-      height: 16,
-      borderRadius: 4,
+      width: 3,
+      height: 12,
+      borderRadius: 2,
       backgroundColor: C.primary,
       shadowColor: C.primaryDeep,
       shadowOpacity: 0.34,
       shadowRadius: 8,
     },
     voiceSignalBarSoft: {
-      height: 11,
+      height: 8,
       backgroundColor: C.primaryDeep,
     },
     voiceTapHint: {
       color: 'rgba(152, 203, 255, 0.62)',
-      fontSize: 10,
+      fontSize: 9,
       fontWeight: '800',
-      letterSpacing: 1,
+      letterSpacing: 0.8,
       textTransform: 'uppercase',
     },
     voiceTapHintActive: {
@@ -1218,23 +1246,23 @@ function createStyles(isWide: boolean) {
     },
     voiceBackBtn: {
       borderRadius: 999,
-      paddingHorizontal: 18,
-      paddingVertical: 12,
+      paddingHorizontal: isDesktop ? 18 : 14,
+      paddingVertical: isDesktop ? 11 : 9,
       borderWidth: 1,
       borderColor: 'rgba(148, 163, 184, 0.2)',
       backgroundColor: 'rgba(15, 23, 42, 0.45)',
     },
     voiceBackText: {
       color: C.onSurfaceVariant,
-      fontSize: 13,
+      fontSize: isDesktop ? 13 : 12,
       fontWeight: '800',
     },
     voiceStartBtn: {
       flex: 1,
       alignItems: 'center',
       borderRadius: 999,
-      paddingHorizontal: 20,
-      paddingVertical: 13,
+      paddingHorizontal: isDesktop ? 20 : 16,
+      paddingVertical: isDesktop ? 12 : 10,
       backgroundColor: C.primaryDeep,
       shadowColor: C.primaryDeep,
       shadowOpacity: 0.38,
@@ -1245,29 +1273,29 @@ function createStyles(isWide: boolean) {
     },
     voiceStartText: {
       color: '#FFFFFF',
-      fontSize: 13,
+      fontSize: isDesktop ? 13 : 12,
       fontWeight: '900',
-      letterSpacing: 0.8,
+      letterSpacing: 0.6,
     },
 
     /* ── PIN Workspace ── */
     instruction: {
       color: C.onSurfaceVariant,
-      fontSize: isWide ? 18 : 15,
+      fontSize: isDesktop ? 18 : (isTablet ? 15 : 14),
       fontWeight: '400',
-      lineHeight: isWide ? 28 : 22,
+      lineHeight: isDesktop ? 28 : (isTablet ? 22 : 20),
       textAlign: 'center',
-      marginBottom: 28,
+      marginBottom: isTablet ? 18 : 28,
     },
     pinRow: {
       flexDirection: 'row',
       justifyContent: 'center',
-      gap: isWide ? 16 : 12,
-      marginBottom: 32,
+      gap: isDesktop ? 16 : 10,
+      marginBottom: isTablet ? 20 : 32,
     },
     pinSlot: {
-      width: isWide ? 48 : 40,
-      height: isWide ? 48 : 40,
+      width: isDesktop ? 48 : (isTablet ? 40 : 36),
+      height: isDesktop ? 48 : (isTablet ? 40 : 36),
       borderRadius: 999,
       backgroundColor: C.slotBg,
       borderWidth: 1.5,
@@ -1294,12 +1322,12 @@ function createStyles(isWide: boolean) {
     },
     initLoaderBox: {
       width: '100%',
-      maxWidth: isWide ? 520 : 350,
+      maxWidth: isDesktop ? 520 : (isTablet ? 440 : 350),
       alignItems: 'center',
       borderRadius: 34,
       backgroundColor: 'rgba(5, 10, 26, 0.2)',
-      paddingHorizontal: isWide ? 42 : 24,
-      paddingVertical: isWide ? 38 : 30,
+      paddingHorizontal: isDesktop ? 42 : 24,
+      paddingVertical: isDesktop ? 38 : 26,
       shadowColor: C.primaryDeep,
       shadowOpacity: 0.18,
       shadowRadius: 46,
@@ -1309,16 +1337,16 @@ function createStyles(isWide: boolean) {
       } as any : {}),
     },
     initOrbWrap: {
-      width: 128,
-      height: 128,
+      width: isTablet ? 104 : 128,
+      height: isTablet ? 104 : 128,
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: 26,
+      marginBottom: isTablet ? 18 : 26,
     },
     initOrbPulse: {
       position: 'absolute',
-      width: 104,
-      height: 104,
+      width: isTablet ? 86 : 104,
+      height: isTablet ? 86 : 104,
       borderRadius: 999,
       borderWidth: 12,
       borderColor: 'rgba(0, 163, 255, 0.08)',
@@ -1326,8 +1354,8 @@ function createStyles(isWide: boolean) {
     },
     initOrbSpinner: {
       position: 'absolute',
-      width: 116,
-      height: 116,
+      width: isTablet ? 96 : 116,
+      height: isTablet ? 96 : 116,
       borderRadius: 999,
       borderWidth: 2,
       borderColor: 'rgba(152, 203, 255, 0.08)',
@@ -1335,8 +1363,8 @@ function createStyles(isWide: boolean) {
       borderRightColor: 'rgba(152, 203, 255, 0.34)',
     },
     initOrbCore: {
-      width: 82,
-      height: 82,
+      width: isTablet ? 68 : 82,
+      height: isTablet ? 68 : 82,
       borderRadius: 999,
       alignItems: 'center',
       justifyContent: 'center',
@@ -1349,8 +1377,8 @@ function createStyles(isWide: boolean) {
     },
     initOrbDot: {
       position: 'absolute',
-      top: 18,
-      right: 21,
+      top: isTablet ? 14 : 18,
+      right: isTablet ? 16 : 21,
       width: 6,
       height: 6,
       borderRadius: 999,
@@ -1369,10 +1397,10 @@ function createStyles(isWide: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      marginBottom: 18,
+      marginBottom: isTablet ? 12 : 18,
     },
     initMetaLine: {
-      width: isWide ? 70 : 48,
+      width: isDesktop ? 70 : 44,
       height: 1,
       backgroundColor: 'rgba(0, 163, 255, 0.26)',
     },
@@ -1386,23 +1414,23 @@ function createStyles(isWide: boolean) {
     initTextBlock: {
       width: '100%',
       alignItems: 'center',
-      minHeight: isWide ? 94 : 104,
+      minHeight: isDesktop ? 94 : (isTablet ? 76 : 84),
       justifyContent: 'center',
       marginBottom: 14,
     },
     initTitle: {
       color: C.onSurface,
-      fontSize: isWide ? 24 : 19,
+      fontSize: isDesktop ? 24 : (isTablet ? 18 : 17),
       fontWeight: '900',
       textAlign: 'center',
       letterSpacing: 0.2,
-      marginBottom: 10,
+      marginBottom: 6,
     },
     initDetail: {
       color: 'rgba(190, 199, 212, 0.72)',
-      fontSize: isWide ? 14 : 12,
+      fontSize: isDesktop ? 14 : (isTablet ? 12 : 11),
       fontWeight: '600',
-      lineHeight: isWide ? 22 : 19,
+      lineHeight: isDesktop ? 22 : (isTablet ? 18 : 16),
       textAlign: 'center',
       maxWidth: 420,
     },
@@ -1426,13 +1454,13 @@ function createStyles(isWide: boolean) {
       flexDirection: 'row',
       flexWrap: 'wrap',
       justifyContent: 'center',
-      gap: isWide ? 24 : 16,
+      gap: isDesktop ? 24 : (isTablet ? 14 : 12),
       width: '100%',
-      maxWidth: 360,
+      maxWidth: isDesktop ? 360 : 320,
     },
     key: {
-      width: isWide ? 100 : 88,
-      height: isWide ? 80 : 64,
+      width: isDesktop ? 100 : (isTablet ? 84 : 76),
+      height: isDesktop ? 80 : (isTablet ? 62 : 56),
       borderRadius: 16,
       backgroundColor: C.keyBg,
       borderWidth: 1,
@@ -1453,25 +1481,25 @@ function createStyles(isWide: boolean) {
     },
     keyText: {
       color: C.onSurface,
-      fontSize: isWide ? 32 : 24,
+      fontSize: isDesktop ? 32 : (isTablet ? 24 : 20),
       fontWeight: '700',
     },
     keyActionText: {
-      fontSize: isWide ? 14 : 12,
+      fontSize: isDesktop ? 14 : 12,
       fontWeight: '600',
       color: C.onSurfaceVariant,
       letterSpacing: 0.7,
     },
 
     footerBar: {
-      height: isWide ? 48 : 58,
+      height: isDesktop ? 48 : (isTablet ? 42 : 58),
       borderTopWidth: 1,
       borderColor: 'rgba(152, 203, 255, 0.08)',
       flexDirection: isWide ? 'row' : 'column',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: isWide ? 0 : 6,
-      paddingHorizontal: isWide ? 64 : 22,
+      paddingHorizontal: isDesktop ? 64 : (isTablet ? 32 : 22),
       paddingVertical: isWide ? 0 : 9,
       backgroundColor: 'rgba(5, 10, 26, 0.55)',
     },
@@ -1490,9 +1518,9 @@ function createStyles(isWide: boolean) {
     },
     footerText: {
       color: 'rgba(148, 163, 184, 0.7)',
-      fontSize: isWide ? 11 : 9,
+      fontSize: isDesktop ? 11 : 9,
       fontWeight: '800',
-      letterSpacing: isWide ? 2.4 : 1.5,
+      letterSpacing: isDesktop ? 2.4 : 1.5,
     },
   });
 }
