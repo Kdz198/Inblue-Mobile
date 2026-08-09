@@ -63,41 +63,115 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return new Uint8Array(bytes).buffer;
 }
 
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
+
 export async function startRealtimeTranscription(
   initialText: string,
   options: RealtimeTranscriptionOptions
 ): Promise<RealtimeTranscriptionHandle> {
   if (!nativePcmAudio) {
-    console.warn('Realtime PCM audio module is not available on this platform. Falling back to mock transcription mode for Expo Go.');
-    
-    // Expo Go Mock Mode: simulate transcription updates
-    let stopped = false;
-    let mockText = initialText.trim();
-    
-    setTimeout(() => {
-      if (!stopped) options.onReady?.();
-    }, 500);
+    console.log('Realtime PCM native module not found. Using expo-av recording fallback for Expo Go.');
 
-    const mockPhrases = ['Đây là', ' phần mềm', ' phỏng vấn AI', ' đang chạy', ' trên Expo Go.'];
-    let phraseIndex = 0;
-    
-    const interval = setInterval(() => {
-      if (stopped) return;
-      if (phraseIndex < mockPhrases.length) {
-        mockText = appendTranscriptSegment(mockText, mockPhrases[phraseIndex]);
-        options.onTranscript(mockText, false);
-        phraseIndex++;
-      } else {
-        options.onTranscript(mockText, true);
-        if (!stopped) options.onClose?.();
-        stopped = true;
-      }
-    }, 2000);
+    let ws: WebSocket | null = null;
+    let recording: Audio.Recording | null = null;
+    let stopped = false;
+    let committedText = initialText.trim();
+
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+      options.onReady?.();
+    } catch (err: any) {
+      console.warn('Failed to start expo-av recording:', err);
+      options.onError?.(err);
+      throw err;
+    }
 
     return {
       stop: async () => {
+        if (stopped) return;
         stopped = true;
-        clearInterval(interval);
+
+        let audioUri: string | null = null;
+        try {
+          if (recording) {
+            await recording.stopAndUnloadAsync();
+            audioUri = recording.getURI();
+          }
+        } catch (e) {
+          console.warn('Error stopping recording:', e);
+        }
+
+        if (!audioUri) {
+          options.onClose?.();
+          return;
+        }
+
+        try {
+          const base64Audio = await FileSystem.readAsStringAsync(audioUri, {
+            encoding: 'base64',
+          });
+
+          await new Promise<void>((resolve, reject) => {
+            ws = new WebSocket(getRealtimeTranscriptionUrl());
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+              const audioBuffer = base64ToArrayBuffer(base64Audio);
+              ws?.send(audioBuffer);
+              ws?.send(JSON.stringify({ type: 'audio_end' }));
+            };
+
+            ws.onmessage = event => {
+              if (typeof event.data !== 'string') return;
+              const message = parseTranscriptionMessage(event.data);
+              if (!message) return;
+
+              if (message.type === 'transcript' && message.text) {
+                committedText = appendTranscriptSegment(committedText, message.text);
+                options.onTranscript(committedText, false);
+              } else if (message.type === 'turn_complete') {
+                options.onTranscript(committedText, true);
+                ws?.close();
+                resolve();
+              } else if (message.type === 'error') {
+                options.onError?.(new Error(message.message || 'Transcription error'));
+                ws?.close();
+                reject(new Error(message.message));
+              }
+            };
+
+            ws.onerror = err => {
+              options.onError?.(new Error('WebSocket connection error'));
+              reject(err);
+            };
+
+            ws.onclose = () => {
+              options.onClose?.();
+              resolve();
+            };
+
+            // Timeout safety after 10s
+            setTimeout(() => {
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+              }
+              resolve();
+            }, 10000);
+          });
+        } catch (err: any) {
+          console.warn('Error sending recording audio:', err);
+          options.onError?.(err);
+        } finally {
+          options.onClose?.();
+        }
       },
     };
   }
