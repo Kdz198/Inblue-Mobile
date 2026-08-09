@@ -194,7 +194,7 @@ export async function startRealtimeTranscription(
       console.warn('[Expo Go Realtime] Failed to initialize WebSocket:', e);
     }
 
-    // Progressive live stream timer: read growing WAV file and send 2-byte sample aligned PCM chunks every 250ms
+    // Progressive live stream timer: read growing WAV file and send 2-byte sample aligned PCM chunks every 200ms
     streamTimer = setInterval(async () => {
       if (stopped || !globalExpoAvRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
 
@@ -210,14 +210,14 @@ export async function startRealtimeTranscription(
           // Force 2-byte sample alignment (16-bit PCM S16LE requirement)
           const alignedLength = (availableBytes >> 1) << 1;
           const chunk = fullBuffer.slice(lastSentOffset, lastSentOffset + alignedLength);
-          lastSentOffset += alignedLength;
           ws.send(chunk);
+          lastSentOffset += alignedLength;
           console.log(`[Expo Go Realtime] Streamed ${chunk.byteLength} aligned PCM bytes live...`);
         }
       } catch (err) {
         // file read race condition during active recording is normal
       }
-    }, 250);
+    }, 200);
 
     return {
       stop: () => {
