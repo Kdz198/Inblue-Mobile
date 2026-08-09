@@ -1203,15 +1203,6 @@ export function AIInterviewRoom({
         </View>
         <Text style={styles.footerText}>POWERED BY INBLUE PLATFORM</Text>
       </View>
-
-      {isQuestionPending && !isFinished && !isEvaluating && (
-        <View style={styles.questionResponseOverlay}>
-          <View style={styles.questionResponseLoader}>
-            <ActivityIndicator size="large" color="#00A3FF" />
-            <Text style={styles.questionResponseLabel}>AI ĐANG CHUẨN BỊ CÂU HỎI</Text>
-          </View>
-        </View>
-      )}
     </View>
   );
 }
@@ -1245,25 +1236,6 @@ function createRoomStyles({
       width: '100%',
       backgroundColor: '#050A1A',
       overflow: 'hidden',
-    },
-    questionResponseOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      zIndex: 100,
-      elevation: 100,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: 'rgba(3, 9, 25, 0.9)',
-    },
-    questionResponseLoader: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 16,
-    },
-    questionResponseLabel: {
-      color: '#B9DEFF',
-      fontSize: isDesktop ? 13 : 11,
-      fontWeight: '800',
-      letterSpacing: 1.5,
     },
 
     /* ── Top Header Navigation ── */
