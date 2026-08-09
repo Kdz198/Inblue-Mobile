@@ -42,24 +42,30 @@ function appendTranscriptSegment(baseText: string, segment: string): string {
 }
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const cleanBase64 = base64.replace(/=+$/, '');
+  const clean = base64.replace(/[^A-Za-z0-9+/=]/g, '');
+  if (typeof globalThis.atob === 'function') {
+    const binaryString = globalThis.atob(clean);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
   const bytes: number[] = [];
   let buffer = 0;
   let bits = 0;
-
-  for (let i = 0; i < cleanBase64.length; i++) {
-    const value = base64Chars.indexOf(cleanBase64[i]);
+  for (let i = 0; i < clean.length; i++) {
+    const value = base64Chars.indexOf(clean[i]);
     if (value < 0) continue;
-
     buffer = (buffer << 6) | value;
     bits += 6;
-
     if (bits >= 8) {
       bits -= 8;
       bytes.push((buffer >> bits) & 0xff);
     }
   }
-
   return new Uint8Array(bytes).buffer;
 }
 
@@ -147,19 +153,29 @@ export async function startRealtimeTranscription(
           });
 
           const fullBuffer = base64ToArrayBuffer(base64Audio);
-          // Strip 44-byte WAV header so backend receives raw 16kHz S16LE PCM audio
           const pcmBuffer = fullBuffer.byteLength > 44 ? fullBuffer.slice(44) : fullBuffer;
+
+          console.log(`[Expo Go Fallback] Sending ${pcmBuffer.byteLength} bytes of raw PCM audio to WebSocket...`);
 
           await new Promise<void>((resolve, reject) => {
             ws = new WebSocket(getRealtimeTranscriptionUrl());
             ws.binaryType = 'arraybuffer';
 
-            ws.onopen = () => {
-              ws?.send(pcmBuffer);
+            ws.onopen = async () => {
+              console.log('[Expo Go Fallback] WebSocket connected to backend STT.');
+              const uint8View = new Uint8Array(pcmBuffer);
+              const CHUNK_SIZE = 4096;
+              for (let offset = 0; offset < uint8View.length; offset += CHUNK_SIZE) {
+                const chunk = uint8View.subarray(offset, offset + CHUNK_SIZE);
+                ws?.send(chunk.buffer);
+                await new Promise(r => setTimeout(r, 20));
+              }
+              console.log('[Expo Go Fallback] Audio chunks sent, sending audio_end.');
               ws?.send(JSON.stringify({ type: 'audio_end' }));
             };
 
             ws.onmessage = event => {
+              console.log('[Expo Go Fallback] Received WS msg:', event.data);
               if (typeof event.data !== 'string') return;
               const message = parseTranscriptionMessage(event.data);
               if (!message) return;
@@ -172,6 +188,7 @@ export async function startRealtimeTranscription(
                 ws?.close();
                 resolve();
               } else if (message.type === 'error') {
+                console.warn('[Expo Go Fallback] STT Server Error:', message.message);
                 options.onError?.(new Error(message.message || 'Transcription error'));
                 ws?.close();
                 reject(new Error(message.message));
@@ -179,6 +196,7 @@ export async function startRealtimeTranscription(
             };
 
             ws.onerror = err => {
+              console.warn('[Expo Go Fallback] WS Error:', err);
               options.onError?.(new Error('WebSocket connection error'));
               reject(err);
             };
@@ -188,13 +206,12 @@ export async function startRealtimeTranscription(
               resolve();
             };
 
-            // Timeout safety after 10s
             setTimeout(() => {
               if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.close();
               }
               resolve();
-            }, 10000);
+            }, 12000);
           });
         } catch (err: any) {
           console.warn('Error sending recording audio:', err);
