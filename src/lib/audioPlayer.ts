@@ -17,7 +17,20 @@ export interface PlayAudioOptions {
   onError?: (error: any) => void;
 }
 
+import { Audio } from 'expo-av';
+
 export async function requestMicrophonePermissionAsync(): Promise<boolean> {
+  try {
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+    const avPerm = await Audio.requestPermissionsAsync();
+    if (avPerm.granted) {
+      return true;
+    }
+  } catch {}
+
   try {
     await setAudioModeAsync({
       allowsRecording: true,

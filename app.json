@@ -3,8 +3,24 @@
     "name": "InblueMB",
     "slug": "inbluemb",
     "version": "1.0.0",
+    "ios": {
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Ứng dụng cần quyền sử dụng Micro để thu âm trả lời phỏng vấn."
+      }
+    },
     "plugins": [
-      "expo-audio"
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Ứng dụng cần quyền sử dụng Micro để thu âm trả lời phỏng vấn."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Ứng dụng cần quyền sử dụng Micro để thu âm trả lời phỏng vấn."
+        }
+      ]
     ]
   }
 }
