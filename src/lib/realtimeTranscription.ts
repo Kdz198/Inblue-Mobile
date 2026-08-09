@@ -164,13 +164,14 @@ export async function startRealtimeTranscription(
             ws.onopen = async () => {
               console.log('[Expo Go Fallback] WebSocket connected to backend STT.');
               const uint8View = new Uint8Array(pcmBuffer);
-              const CHUNK_SIZE = 4096;
+              const CHUNK_SIZE = 3200; // 100ms of 16kHz 16-bit mono audio (3200 bytes)
               for (let offset = 0; offset < uint8View.length; offset += CHUNK_SIZE) {
-                const chunk = uint8View.subarray(offset, offset + CHUNK_SIZE);
-                ws?.send(chunk.buffer);
-                await new Promise(r => setTimeout(r, 20));
+                const chunk = uint8View.subarray(offset, Math.min(offset + CHUNK_SIZE, uint8View.length));
+                const chunkBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+                ws?.send(chunkBuffer);
+                await new Promise(r => setTimeout(r, 40));
               }
-              console.log('[Expo Go Fallback] Audio chunks sent, sending audio_end.');
+              console.log('[Expo Go Fallback] All audio chunks sent. Sending audio_end...');
               ws?.send(JSON.stringify({ type: 'audio_end' }));
             };
 
