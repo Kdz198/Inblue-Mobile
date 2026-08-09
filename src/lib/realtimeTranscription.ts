@@ -99,6 +99,8 @@ const LINEAR_PCM_16K_OPTIONS: Audio.RecordingOptions = {
   },
 };
 
+let globalExpoAvRecording: Audio.Recording | null = null;
+
 export async function startRealtimeTranscription(
   initialText: string,
   options: RealtimeTranscriptionOptions
@@ -107,11 +109,18 @@ export async function startRealtimeTranscription(
     console.log('Realtime PCM native module not found. Starting progressive real-time live streaming for Expo Go.');
 
     let ws: WebSocket | null = null;
-    let recording: Audio.Recording | null = null;
     let streamTimer: NodeJS.Timeout | null = null;
     let stopped = false;
     let committedText = initialText.trim();
     let lastSentOffset = 44; // Skip 44-byte WAV header
+
+    // Clean up any stale recording left over from a previous crash/error
+    if (globalExpoAvRecording) {
+      try {
+        await globalExpoAvRecording.stopAndUnloadAsync();
+      } catch {}
+      globalExpoAvRecording = null;
+    }
 
     try {
       await Audio.setAudioModeAsync({
@@ -119,12 +128,25 @@ export async function startRealtimeTranscription(
         playsInSilentModeIOS: true,
       });
 
-      recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(LINEAR_PCM_16K_OPTIONS);
-      await recording.startAsync();
+      const rec = new Audio.Recording();
+      globalExpoAvRecording = rec;
+      await rec.prepareToRecordAsync(LINEAR_PCM_16K_OPTIONS);
+      await rec.startAsync();
       options.onReady?.();
     } catch (err: any) {
       console.warn('Failed to start expo-av recording:', err);
+      if (globalExpoAvRecording) {
+        try {
+          await globalExpoAvRecording.stopAndUnloadAsync();
+        } catch {}
+        globalExpoAvRecording = null;
+      }
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+        });
+      } catch {}
       options.onError?.(err);
       throw err;
     }
@@ -167,10 +189,10 @@ export async function startRealtimeTranscription(
 
     // Progressive background stream timer: send new audio chunks every 300ms while user speaks
     streamTimer = setInterval(async () => {
-      if (stopped || !recording || !ws || ws.readyState !== WebSocket.OPEN) return;
+      if (stopped || !globalExpoAvRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
 
       try {
-        const audioUri = recording.getURI();
+        const audioUri = globalExpoAvRecording.getURI();
         if (!audioUri) return;
 
         const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
@@ -197,15 +219,16 @@ export async function startRealtimeTranscription(
         }
 
         let audioUri: string | null = null;
+        const currentRec = globalExpoAvRecording;
+        globalExpoAvRecording = null;
+
         try {
-          if (recording) {
-            await recording.stopAndUnloadAsync();
-            audioUri = recording.getURI();
-            recording = null;
+          if (currentRec) {
+            await currentRec.stopAndUnloadAsync();
+            audioUri = currentRec.getURI();
           }
         } catch (e) {
           console.warn('Error stopping recording:', e);
-          recording = null;
         }
 
         try {

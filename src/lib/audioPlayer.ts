@@ -25,11 +25,6 @@ export async function requestMicrophonePermissionAsync(): Promise<boolean> {
       const requested = await requestRecordingPermissionsAsync();
       granted = requested.granted || requested.status === 'granted';
     }
-    await setAudioModeAsync({
-      allowsRecording: false,
-      playsInSilentMode: true,
-      interruptionMode: 'doNotMix',
-    });
     return granted;
   } catch (error) {
     console.warn('Failed to request native recording permissions:', error);

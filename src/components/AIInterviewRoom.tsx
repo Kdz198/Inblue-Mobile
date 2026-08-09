@@ -632,8 +632,9 @@ export function AIInterviewRoom({
       console.warn('Microphone permission request error:', permErr);
     }
 
-    // 2. Start audio meter (Web Audio API or Native animated pulse)
+    // 2. Start audio meter (Web Audio API or Native animated pulse) & update button state immediately
     void startMicAudioMeter();
+    setIsRecording(true);
 
     speechResultsEnabledRef.current = true;
     recordingBaseTranscriptRef.current = answerInput.trim();
@@ -663,10 +664,7 @@ export function AIInterviewRoom({
       realtimeTranscriptionRef.current = null;
       stopMicAudioMeter();
       setIsRecording(false);
-      return;
     }
-
-    setIsRecording(true);
   };
 
   // Submit Answer Action
