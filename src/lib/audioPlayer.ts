@@ -4,6 +4,7 @@ import {
   requestRecordingPermissionsAsync,
   getRecordingPermissionsAsync,
   type AudioPlayer,
+  type AudioSample,
 } from 'expo-audio';
 
 export interface AudioPlayerHandle {
@@ -12,6 +13,7 @@ export interface AudioPlayerHandle {
 
 export interface PlayAudioOptions {
   onStart?: () => void;
+  onProgress?: (currentTime: number, duration: number) => void;
   onVolume?: (level: number) => void;
   onEnd?: () => void;
   onError?: (error: any) => void;
@@ -65,17 +67,54 @@ export async function playAudioUri(
       interruptionMode: 'doNotMix',
     });
 
-    const player: AudioPlayer = createAudioPlayer({ uri }, { updateInterval: 250 });
+    const player: AudioPlayer = createAudioPlayer({ uri }, { updateInterval: 80 });
     let subscription: { remove: () => void } | null = null;
+    let sampleSubscription: { remove: () => void } | null = null;
+
+    const removeListeners = () => {
+      subscription?.remove();
+      sampleSubscription?.remove();
+      subscription = null;
+      sampleSubscription = null;
+      try {
+        player.setAudioSamplingEnabled(false);
+      } catch {}
+    };
+
+    const emitAudioLevel = (sample: AudioSample) => {
+      const frames = sample.channels[0]?.frames;
+      if (!frames?.length) return;
+
+      let sumSquares = 0;
+      const stride = Math.max(1, Math.floor(frames.length / 192));
+      let count = 0;
+      for (let index = 0; index < frames.length; index += stride) {
+        sumSquares += frames[index] * frames[index];
+        count++;
+      }
+
+      const rms = Math.sqrt(sumSquares / Math.max(1, count));
+      options.onVolume?.(Math.max(0, Math.min(1, rms * 3.5)));
+    };
+
+    try {
+      player.setAudioSamplingEnabled(true);
+      sampleSubscription = player.addListener('audioSampleUpdate', emitAudioLevel);
+    } catch (error) {
+      console.warn('Unable to sample TTS audio:', error);
+    }
 
     subscription = player.addListener('playbackStatusUpdate', (status: any) => {
+      if (status.duration > 0) {
+        options.onProgress?.(status.currentTime, status.duration);
+      }
+
       if (status.playing) {
         options.onStart?.();
-        options.onVolume?.(0.34);
       }
 
       if (status.didJustFinish) {
-        subscription?.remove();
+        removeListeners();
         try {
           player.pause();
           player.remove();
@@ -87,11 +126,10 @@ export async function playAudioUri(
 
     player.play();
     options.onStart?.();
-    options.onVolume?.(0.34);
 
     return {
       stop: () => {
-        subscription?.remove();
+        removeListeners();
         try {
           player.pause();
           player.remove();

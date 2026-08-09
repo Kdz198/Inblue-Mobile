@@ -10,6 +10,8 @@ export interface RealtimeTranscriptionHandle {
 
 export interface RealtimeTranscriptionOptions {
   onTranscript: (text: string, isFinal?: boolean) => void;
+  expoGoRecorder?: import('expo-audio').AudioRecorder;
+  onAudioLevel?: (level: number) => void;
   onReady?: () => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
@@ -69,29 +71,29 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return new Uint8Array(bytes).buffer;
 }
 
-import { Audio } from 'expo-av';
+import { AudioQuality, IOSOutputFormat, setAudioModeAsync, type RecordingOptions } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 
-const LINEAR_PCM_16K_OPTIONS: Audio.RecordingOptions = {
+export const EXPO_GO_PCM_RECORDING_OPTIONS: RecordingOptions = {
   isMeteringEnabled: true,
   android: {
     extension: '.wav',
-    outputFormat: Audio.AndroidOutputFormat.THREE_GPP,
-    audioEncoder: Audio.AndroidAudioEncoder.AMR_NB,
+    outputFormat: 'mpeg4',
+    audioEncoder: 'aac',
     sampleRate: 16000,
     numberOfChannels: 1,
     bitRate: 128000,
   },
   ios: {
     extension: '.wav',
-    audioQuality: Audio.IOSAudioQuality.MAX,
+    audioQuality: AudioQuality.MAX,
     sampleRate: 16000,
     numberOfChannels: 1,
     bitRate: 256000,
     linearPCMBitDepth: 16,
     linearPCMIsBigEndian: false,
     linearPCMIsFloat: false,
-    outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+    outputFormat: IOSOutputFormat.LINEARPCM,
   },
   web: {
     mimeType: 'audio/webm',
@@ -99,7 +101,16 @@ const LINEAR_PCM_16K_OPTIONS: Audio.RecordingOptions = {
   },
 };
 
-let globalExpoAvRecording: Audio.Recording | null = null;
+async function setRecordingAudioMode(allowsRecording: boolean): Promise<void> {
+  await setAudioModeAsync({
+    allowsRecording,
+    playsInSilentMode: true,
+    interruptionMode: 'doNotMix',
+    shouldPlayInBackground: false,
+    shouldRouteThroughEarpiece: false,
+    allowsBackgroundRecording: false,
+  });
+}
 
 export async function startRealtimeTranscription(
   initialText: string,
@@ -109,39 +120,26 @@ export async function startRealtimeTranscription(
     console.log('Realtime PCM native module not found. Using high-precision 16kHz PCM audio recording for Expo Go.');
 
     let stopped = false;
-
-    // Clean up any stale recording left over from a previous crash/error
-    if (globalExpoAvRecording) {
-      try {
-        await globalExpoAvRecording.stopAndUnloadAsync();
-      } catch {}
-      globalExpoAvRecording = null;
-    }
+    const recorder = options.expoGoRecorder;
+    let meterSubscription: { remove: () => void } | null = null;
 
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      if (!recorder) {
+        throw new Error('Expo Go audio recorder is unavailable.');
+      }
+      await setRecordingAudioMode(true);
+      await recorder.prepareToRecordAsync(EXPO_GO_PCM_RECORDING_OPTIONS);
+      meterSubscription = recorder.addListener('recordingStatusUpdate', status => {
+        if (typeof status.metering !== 'number') return;
+        const level = Math.max(0, Math.min(1, (status.metering + 60) / 60));
+        options.onAudioLevel?.(level);
       });
-
-      const rec = new Audio.Recording();
-      globalExpoAvRecording = rec;
-      await rec.prepareToRecordAsync(LINEAR_PCM_16K_OPTIONS);
-      await rec.startAsync();
+      recorder.record();
       options.onReady?.();
     } catch (err: any) {
-      console.warn('Failed to start expo-av recording:', err);
-      if (globalExpoAvRecording) {
-        try {
-          await globalExpoAvRecording.stopAndUnloadAsync();
-        } catch {}
-        globalExpoAvRecording = null;
-      }
+      console.warn('Failed to start expo-audio recording:', err);
       try {
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-        });
+        await setRecordingAudioMode(false);
       } catch {}
       options.onError?.(err);
       throw err;
@@ -151,26 +149,23 @@ export async function startRealtimeTranscription(
       stop: () => {
         if (stopped) return Promise.resolve();
         stopped = true;
+        meterSubscription?.remove();
+        meterSubscription = null;
 
         return new Promise<void>(async resolve => {
           let audioUri: string | null = null;
-          const currentRec = globalExpoAvRecording;
-          globalExpoAvRecording = null;
 
           try {
-            if (currentRec) {
-              await currentRec.stopAndUnloadAsync();
-              audioUri = currentRec.getURI();
+            if (recorder) {
+              await recorder.stop();
+              audioUri = recorder.uri;
             }
           } catch (e) {
             console.warn('Error stopping recording:', e);
           }
 
           try {
-            await Audio.setAudioModeAsync({
-              allowsRecordingIOS: false,
-              playsInSilentModeIOS: true,
-            });
+            await setRecordingAudioMode(false);
           } catch {}
 
           if (!audioUri) {
@@ -192,8 +187,11 @@ export async function startRealtimeTranscription(
             ws.binaryType = 'arraybuffer';
 
             let safetyTimer: NodeJS.Timeout | null = null;
+            let finished = false;
 
             const finish = (finalText?: string) => {
+              if (finished) return;
+              finished = true;
               if (safetyTimer) {
                 clearTimeout(safetyTimer);
                 safetyTimer = null;
@@ -206,24 +204,31 @@ export async function startRealtimeTranscription(
               resolve();
             };
 
-            safetyTimer = setTimeout(() => {
-              console.log('[Expo Go STT] STT response timeout fallback.');
-              finish(committedText || undefined);
-            }, 6000);
-
             ws.onopen = async () => {
-              console.log('[Expo Go STT] Connected to backend WebSocket STT.');
-              const uint8View = new Uint8Array(pcmBuffer);
-              const CHUNK_SIZE = 3200; // 100ms of 16kHz 16-bit mono audio (3200 bytes)
-              for (let offset = 0; offset < uint8View.length; offset += CHUNK_SIZE) {
-                const end = Math.min(offset + CHUNK_SIZE, uint8View.length);
-                const chunk = uint8View.subarray(offset, end);
-                const chunkBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
-                ws.send(chunkBuffer);
-                await new Promise(r => setTimeout(r, 15));
+              try {
+                console.log('[Expo Go STT] Connected to backend WebSocket STT.');
+                const uint8View = new Uint8Array(pcmBuffer);
+                const CHUNK_SIZE = 3200; // 100ms of 16kHz 16-bit mono audio (3200 bytes)
+                for (let offset = 0; offset < uint8View.length; offset += CHUNK_SIZE) {
+                  if (finished || ws.readyState !== WebSocket.OPEN) return;
+                  const end = Math.min(offset + CHUNK_SIZE, uint8View.length);
+                  const chunk = uint8View.subarray(offset, end);
+                  const chunkBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+                  ws.send(chunkBuffer);
+                  await new Promise(r => setTimeout(r, 5));
+                }
+                console.log('[Expo Go STT] All audio chunks sent. Sending audio_end...');
+                ws.send(JSON.stringify({ type: 'audio_end' }));
+
+                // Start waiting only after the complete recording reaches the backend.
+                safetyTimer = setTimeout(() => {
+                  console.log('[Expo Go STT] STT response timeout fallback.');
+                  finish(committedText || undefined);
+                }, 20000);
+              } catch (error) {
+                console.warn('[Expo Go STT] Failed while sending audio:', error);
+                finish(committedText || undefined);
               }
-              console.log('[Expo Go STT] All audio chunks sent. Sending audio_end...');
-              ws.send(JSON.stringify({ type: 'audio_end' }));
             };
 
             ws.onmessage = event => {

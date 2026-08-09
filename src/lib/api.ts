@@ -188,8 +188,10 @@ export async function generateTtsAudioApi(text: string, voiceId?: string): Promi
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn(`TTS API returned status ${response.status}`);
-      throw new Error(`Tạo giọng đọc AI thất bại (${response.status})`);
+      const errorBody = await response.text().catch(() => '');
+      const detail = errorBody.trim().slice(0, 300);
+      console.warn(`TTS API returned status ${response.status}`, detail || '(empty response body)');
+      throw new Error(`Tạo giọng đọc AI thất bại (${response.status})${detail ? `: ${detail}` : ''}`);
     }
 
     return await response.blob();

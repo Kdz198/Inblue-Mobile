@@ -1,5 +1,77 @@
 import React, { useEffect, useRef } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+
+type NativeParticle = {
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
+  size: number;
+  opacity: number;
+  duration: number;
+  progress: Animated.Value;
+};
+
+function NativeCyberBackground() {
+  const { width, height } = useWindowDimensions();
+  const particles = useRef<NativeParticle[]>(
+    Array.from({ length: 22 }, (_, index) => ({
+      x: Math.round(Math.random() * Math.max(width, 900)),
+      y: Math.round(Math.random() * Math.max(height, 700)),
+      dx: 28 + Math.random() * 100,
+      dy: -24 - Math.random() * 84,
+      size: index % 5 === 0 ? 3 : 2,
+      opacity: 0.2 + Math.random() * 0.48,
+      duration: 5600 + Math.round(Math.random() * 5800),
+      progress: new Animated.Value(Math.random()),
+    }))
+  ).current;
+  useEffect(() => {
+    const particleAnimations = particles.map(particle =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(particle.progress, {
+            toValue: 1,
+            duration: particle.duration,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(particle.progress, {
+            toValue: 0,
+            duration: particle.duration,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ])
+      )
+    );
+    particleAnimations.forEach(animation => animation.start());
+    return () => particleAnimations.forEach(animation => animation.stop());
+  }, [particles]);
+
+  return (
+    <View pointerEvents="none" style={styles.nativeBackground}>
+      {particles.map((particle, index) => {
+        const translateX = particle.progress.interpolate({ inputRange: [0, 1], outputRange: [particle.x, particle.x + particle.dx] });
+        const translateY = particle.progress.interpolate({ inputRange: [0, 1], outputRange: [particle.y, particle.y + particle.dy] });
+        return (
+          <Animated.View
+            key={index}
+            style={[
+              styles.nativeParticle,
+              {
+                width: particle.size,
+                height: particle.size,
+                opacity: particle.opacity,
+                transform: [{ translateX }, { translateY }],
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+}
 
 export function CyberCanvasBackground() {
   const canvasRef = useRef<any>(null);
@@ -106,5 +178,18 @@ export function CyberCanvasBackground() {
     );
   }
 
-  return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#050A1A' }]} />;
+  return <NativeCyberBackground />;
 }
+
+const styles = StyleSheet.create({
+  nativeBackground: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    backgroundColor: '#050A1A',
+  },
+  nativeParticle: {
+    position: 'absolute',
+    borderRadius: 999,
+    backgroundColor: '#98CBFF',
+  },
+});

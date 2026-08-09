@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAudioRecorder } from 'expo-audio';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {
   Animated,
+  ActivityIndicator,
   Easing,
   Platform,
   Pressable,
@@ -21,7 +24,11 @@ import {
 import { CyberCanvasBackground } from './CyberCanvasBackground';
 import { playTtsAudioBlob, type TtsPlayback } from '../lib/ttsAudio';
 import { requestMicrophonePermissionAsync } from '../lib/audioPlayer';
-import { startRealtimeTranscription, type RealtimeTranscriptionHandle } from '../lib/realtimeTranscription';
+import {
+  EXPO_GO_PCM_RECORDING_OPTIONS,
+  startRealtimeTranscription,
+  type RealtimeTranscriptionHandle,
+} from '../lib/realtimeTranscription';
 
 interface AIInterviewRoomProps {
   sessionKey: string;
@@ -29,6 +36,12 @@ interface AIInterviewRoomProps {
   voices?: VoiceOption[];
   onVoiceChange?: (voiceId: string) => void;
   onFinish: () => void;
+}
+
+interface SpeechCallbacks {
+  onStart?: () => void;
+  onProgress?: (currentTime: number, duration: number) => void;
+  onEnd?: () => void;
 }
 
 const iconStroke = '#98CBFF';
@@ -45,6 +58,9 @@ function LineIcon({
   color?: string;
 }) {
   if (Platform.OS !== 'web') {
+    if (name === 'bot') {
+      return <MaterialCommunityIcons name="robot-outline" size={size} color={color} />;
+    }
     const fallback: Record<typeof name, string> = {
       clock: '◷',
       history: '▤',
@@ -157,6 +173,7 @@ export function AIInterviewRoom({
   onVoiceChange,
   onFinish,
 }: AIInterviewRoomProps) {
+  const expoGoRecorder = useAudioRecorder(EXPO_GO_PCM_RECORDING_OPTIONS);
   const { width, height } = useWindowDimensions();
   const isDesktop = width >= 1200;
   const isTablet = width >= 768 && width < 1200;
@@ -185,13 +202,17 @@ export function AIInterviewRoom({
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [spokenQuestionText, setSpokenQuestionText] = useState('');
   const [currentPhase, setCurrentPhase] = useState('Vòng 7: Phỏng Vấn AI');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(1);
   const [totalQuestions, setTotalQuestions] = useState(5);
 
   const [answerInput, setAnswerInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isProcessingTranscript, setIsProcessingTranscript] = useState(false);
+  const [hasTranscriptResponse, setHasTranscriptResponse] = useState(false);
   const [isLoadingQuestion, setIsLoadingQuestion] = useState(true);
+  const [isQuestionAudioLoading, setIsQuestionAudioLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
@@ -207,6 +228,8 @@ export function AIInterviewRoom({
   const realtimeTranscriptionRef = useRef<RealtimeTranscriptionHandle | null>(null);
   const recordingBaseTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
+  const silenceStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toggleRecordingRef = useRef<(() => Promise<void>) | null>(null);
   const micAudioContextRef = useRef<any>(null);
   const micAudioSourceRef = useRef<any>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -350,7 +373,7 @@ export function AIInterviewRoom({
       nativeWaveIntervalRef.current = setInterval(() => {
         const randomEnergy = 0.28 + Math.random() * 0.54;
         setAudioWaveEnergy(randomEnergy);
-      }, 120);
+      }, 180);
       return;
     }
 
@@ -490,8 +513,14 @@ export function AIInterviewRoom({
   }, [pulseAiSpeechAura, resetAudioWave, setAiSpeechAuraEnergy]);
 
   // Speak AI Question using backend TTS audio, with browser TTS as a web fallback.
-  const speakText = useCallback(async (text: string, voiceIdOverride?: string) => {
+  const speakText = useCallback(async (text: string, voiceIdOverride?: string, callbacks: SpeechCallbacks = {}) => {
     stopTtsPlayback();
+    let speechStarted = false;
+    const notifyStart = () => {
+      if (speechStarted) return;
+      speechStarted = true;
+      callbacks.onStart?.();
+    };
 
     try {
       resetAudioWave(120);
@@ -503,18 +532,25 @@ export function AIInterviewRoom({
         onStart: () => {
           setIsAiSpeaking(true);
           pulseAiSpeechAura();
+          notifyStart();
+        },
+        onProgress: (currentTime, duration) => {
+          callbacks.onProgress?.(currentTime, duration);
         },
         onEnd: () => {
           setIsAiSpeaking(false);
           setAiSpeechAuraEnergy(0);
           resetAudioWave();
           ttsPlaybackRef.current = null;
+          callbacks.onEnd?.();
         },
         onError: error => {
           console.warn('Unable to play backend TTS audio:', error);
           setIsAiSpeaking(false);
           setAiSpeechAuraEnergy(0);
           resetAudioWave();
+          notifyStart();
+          callbacks.onProgress?.(1, 1);
           speakWithBrowserFallback(text);
         },
         onVolume: energy => {
@@ -526,6 +562,8 @@ export function AIInterviewRoom({
       setIsAiSpeaking(false);
       setAiSpeechAuraEnergy(0);
       resetAudioWave();
+      notifyStart();
+      callbacks.onProgress?.(1, 1);
       speakWithBrowserFallback(text);
     }
   }, [
@@ -566,8 +604,23 @@ export function AIInterviewRoom({
         content: data.questionContent,
         timestamp: nowStr,
       };
-      setMessages(prev => [...prev, newMsg]);
-      speakText(data.questionContent);
+      setSpokenQuestionText('');
+      setIsQuestionAudioLoading(true);
+      speakText(data.questionContent, undefined, {
+        onStart: () => {
+          setIsQuestionAudioLoading(false);
+          setSpokenQuestionText(' ');
+          setMessages(prev => [...prev, newMsg]);
+        },
+        onProgress: (currentTime, duration) => {
+          const progress = Math.max(0, Math.min(1, currentTime / duration));
+          const characterCount = Math.max(1, Math.floor(data.questionContent!.length * progress));
+          setSpokenQuestionText(data.questionContent!.slice(0, characterCount));
+        },
+        onEnd: () => {
+          setSpokenQuestionText(data.questionContent!);
+        },
+      });
     }
   }, [speakText]);
 
@@ -610,17 +663,25 @@ export function AIInterviewRoom({
     if (isSubmitting || isFinished || isEvaluating) return;
 
     if (isRecording) {
-      try {
-        await realtimeTranscriptionRef.current?.stop();
-      } catch {}
-      speechResultsEnabledRef.current = false;
-      realtimeTranscriptionRef.current = null;
-      stopMicAudioMeter();
+      if (silenceStopTimerRef.current) {
+        clearTimeout(silenceStopTimerRef.current);
+        silenceStopTimerRef.current = null;
+      }
       setIsRecording(false);
-      const completedAnswer = (finalTranscriptRef.current || answerInput).trim();
-      if (completedAnswer) {
-        setAnswerInput(completedAnswer);
-        handleSubmitAnswer(completedAnswer);
+      setIsProcessingTranscript(true);
+      stopMicAudioMeter();
+      const activeTranscription = realtimeTranscriptionRef.current;
+      if (!activeTranscription) {
+        setIsProcessingTranscript(false);
+        speechResultsEnabledRef.current = false;
+        return;
+      }
+      try {
+        await activeTranscription.stop();
+      } catch {
+        setIsProcessingTranscript(false);
+        speechResultsEnabledRef.current = false;
+        realtimeTranscriptionRef.current = null;
       }
       return;
     }
@@ -635,37 +696,71 @@ export function AIInterviewRoom({
     // 2. Start audio meter (Web Audio API or Native animated pulse) & update button state immediately
     void startMicAudioMeter();
     setIsRecording(true);
+    setIsProcessingTranscript(false);
+    setHasTranscriptResponse(false);
 
     speechResultsEnabledRef.current = true;
     recordingBaseTranscriptRef.current = answerInput.trim();
     finalTranscriptRef.current = recordingBaseTranscriptRef.current;
+    silenceStopTimerRef.current = null;
 
     try {
       realtimeTranscriptionRef.current = await startRealtimeTranscription(recordingBaseTranscriptRef.current, {
+        expoGoRecorder,
+        onAudioLevel: level => {
+          if (level >= 0.08) {
+            if (silenceStopTimerRef.current) {
+              clearTimeout(silenceStopTimerRef.current);
+              silenceStopTimerRef.current = null;
+            }
+            return;
+          }
+
+          if (!silenceStopTimerRef.current) {
+            silenceStopTimerRef.current = setTimeout(() => {
+              silenceStopTimerRef.current = null;
+              void toggleRecordingRef.current?.();
+            }, 5000);
+          }
+        },
         onTranscript: text => {
           if (!speechResultsEnabledRef.current) return;
           finalTranscriptRef.current = text;
+          setHasTranscriptResponse(true);
           setAnswerInput(text);
         },
         onError: error => {
           console.warn('Realtime transcription error:', error);
         },
         onClose: () => {
+          if (silenceStopTimerRef.current) {
+            clearTimeout(silenceStopTimerRef.current);
+            silenceStopTimerRef.current = null;
+          }
           if (!speechResultsEnabledRef.current) return;
           speechResultsEnabledRef.current = false;
           realtimeTranscriptionRef.current = null;
+          setIsProcessingTranscript(false);
           stopMicAudioMeter();
           setIsRecording(false);
         },
       });
     } catch (e) {
       console.warn('Realtime transcription start failed:', e);
+      if (silenceStopTimerRef.current) {
+        clearTimeout(silenceStopTimerRef.current);
+        silenceStopTimerRef.current = null;
+      }
       speechResultsEnabledRef.current = false;
       realtimeTranscriptionRef.current = null;
+      setIsProcessingTranscript(false);
+      setHasTranscriptResponse(false);
       stopMicAudioMeter();
       setIsRecording(false);
     }
   };
+
+  toggleRecordingRef.current = toggleRecording;
 
   // Submit Answer Action
   const handleSubmitAnswer = async (answerOverride?: string) => {
@@ -681,7 +776,12 @@ export function AIInterviewRoom({
     };
 
     setMessages(prev => [...prev, userMsg]);
+    if (silenceStopTimerRef.current) {
+      clearTimeout(silenceStopTimerRef.current);
+      silenceStopTimerRef.current = null;
+    }
     speechResultsEnabledRef.current = false;
+    setIsProcessingTranscript(false);
     try {
       await realtimeTranscriptionRef.current?.stop();
     } catch {}
@@ -720,8 +820,8 @@ export function AIInterviewRoom({
   };
 
   // Latest AI Question for display on main stage
-  const latestAiQuestion = messages.filter(m => m.role === 'ai').pop()?.content || 'Đang kết nối với Trợ lý phỏng vấn AI...';
-  const isQuestionPending = isLoadingQuestion || isSubmitting;
+  const latestAiQuestion = spokenQuestionText || messages.filter(m => m.role === 'ai').pop()?.content || 'Đang kết nối với Trợ lý phỏng vấn AI...';
+  const isQuestionPending = isLoadingQuestion || isSubmitting || isQuestionAudioLoading;
   const selectedVoice = voices.find(voice => voice.id === selectedVoiceId) || voices[0];
   const handleSelectVoiceDuringInterview = (voiceId: string) => {
     setSelectedVoiceId(voiceId);
@@ -737,7 +837,6 @@ export function AIInterviewRoom({
   return (
     <View style={styles.container}>
       {/* Dynamic Animated Cyber Constellation Canvas Background */}
-      <CyberCanvasBackground />
 
       {/* ── Top Header Navigation Bar ── */}
       <View style={styles.topHeader}>
@@ -814,6 +913,7 @@ export function AIInterviewRoom({
       <View style={styles.mainWorkspace}>
         {/* ── Left / Center Primary Interview Stage ── */}
         <View style={[styles.stageArea, isKioskCompact && styles.stageAreaCompact]}>
+          <CyberCanvasBackground />
           {isFinished ? (
             /* Finished Stage Card */
             <View style={styles.glassCardStage}>
@@ -926,7 +1026,7 @@ export function AIInterviewRoom({
                 <View style={styles.micControlWrap}>
                   <Pressable
                     onPress={toggleRecording}
-                    disabled={isSubmitting || isLoadingQuestion}
+                    disabled={isSubmitting || isLoadingQuestion || isProcessingTranscript}
                     style={({ pressed }) => [
                       styles.micOrbButton,
                       isRecording ? styles.micOrbButtonStop : styles.micOrbButtonStart,
@@ -952,6 +1052,12 @@ export function AIInterviewRoom({
                 </View>
 
                 <View nativeID="live-transcript-hud" style={styles.liveTranscriptHud}>
+                  {isProcessingTranscript && !hasTranscriptResponse && (
+                    <View pointerEvents="none" style={styles.transcriptProcessingOverlay}>
+                      <ActivityIndicator size="large" color="#00A3FF" />
+                      <Text style={styles.transcriptProcessingText}>ĐANG XỬ LÝ BẢN GHI ÂM...</Text>
+                    </View>
+                  )}
                   <View style={styles.hudCornerTopLeft} />
                   <View style={styles.hudCornerBottomRight} />
                   <View style={styles.transcriptHeader}>
@@ -977,7 +1083,18 @@ export function AIInterviewRoom({
                     nestedScrollEnabled
                   >
                     <Text style={styles.transcriptText}>
-                      {answerInput.trim()
+                      {isProcessingTranscript
+                        ? '"Đang xử lý bản ghi âm..."'
+                        : answerInput.trim()
+                        ? `"${answerInput.trim()}"`
+                        : isRecording
+                        ? '"Đang lắng nghe câu trả lời của bạn..."'
+                        : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
+                    </Text>
+                    <Text style={styles.transcriptTextLegacyHidden}>
+                      {isProcessingTranscript
+                        ? '"Äang xá»­ lÃ½ báº£n ghi Ã¢m..."'
+                        : answerInput.trim()
                         ? `"${answerInput.trim()}"`
                         : isRecording
                         ? '"Đang lắng nghe câu trả lời của bạn..."'
@@ -985,13 +1102,17 @@ export function AIInterviewRoom({
                     </Text>
                   </ScrollView>
                   <View style={styles.transcriptFooter}>
-                    <Text style={styles.transcriptState}>{isRecording ? 'LISTENING...' : 'VOICE READY'}</Text>
+                    <View style={styles.transcriptStateWrap}>
+                      <Text style={styles.transcriptState}>
+                        {isProcessingTranscript ? 'PROCESSING...' : isRecording ? 'LISTENING...' : 'VOICE READY'}
+                      </Text>
+                    </View>
                     <Pressable
                       onPress={() => handleSubmitAnswer()}
-                      disabled={!answerInput.trim() || isSubmitting}
+                      disabled={!answerInput.trim() || isSubmitting || isProcessingTranscript}
                       style={({ pressed }) => [
                         styles.sendAnswerBtn,
-                        (!answerInput.trim() || isSubmitting) && styles.sendAnswerBtnDisabled,
+                        (!answerInput.trim() || isSubmitting || isProcessingTranscript) && styles.sendAnswerBtnDisabled,
                         pressed && { opacity: 0.85 },
                       ]}
                     >
@@ -1082,6 +1203,15 @@ export function AIInterviewRoom({
         </View>
         <Text style={styles.footerText}>POWERED BY INBLUE PLATFORM</Text>
       </View>
+
+      {isQuestionPending && !isFinished && !isEvaluating && (
+        <View style={styles.questionResponseOverlay}>
+          <View style={styles.questionResponseLoader}>
+            <ActivityIndicator size="large" color="#00A3FF" />
+            <Text style={styles.questionResponseLabel}>AI ĐANG CHUẨN BỊ CÂU HỎI</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -1115,6 +1245,25 @@ function createRoomStyles({
       width: '100%',
       backgroundColor: '#050A1A',
       overflow: 'hidden',
+    },
+    questionResponseOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 100,
+      elevation: 100,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(3, 9, 25, 0.9)',
+    },
+    questionResponseLoader: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 16,
+    },
+    questionResponseLabel: {
+      color: '#B9DEFF',
+      fontSize: isDesktop ? 13 : 11,
+      fontWeight: '800',
+      letterSpacing: 1.5,
     },
 
     /* ── Top Header Navigation ── */
@@ -1364,11 +1513,12 @@ function createRoomStyles({
       height: isDesktop ? 214 : (isTablet ? 170 : 144),
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: 'rgba(152, 203, 255, 0.32)',
-      backgroundColor: 'rgba(0, 163, 255, 0.025)',
+      borderColor: 'rgba(152, 203, 255, 0.72)',
+      backgroundColor: 'rgba(0, 163, 255, 0.08)',
       shadowColor: '#98CBFF',
-      shadowOpacity: 0.22,
-      shadowRadius: 22,
+      shadowOpacity: 0.5,
+      shadowRadius: 30,
+      elevation: 5,
     },
     aiOrbHalo: {
       position: 'absolute',
@@ -1623,6 +1773,25 @@ function createRoomStyles({
         WebkitBackdropFilter: 'blur(18px)',
       } as any : {}),
     },
+    transcriptProcessingOverlay: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      zIndex: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      borderRadius: 8,
+      backgroundColor: 'rgba(5, 10, 26, 0.92)',
+    },
+    transcriptProcessingText: {
+      color: '#98CBFF',
+      fontSize: isDesktop ? 11 : 9.5,
+      fontWeight: '800',
+      letterSpacing: 1.4,
+    },
     hudCornerTopLeft: {
       position: 'absolute',
       top: 0,
@@ -1706,6 +1875,9 @@ function createRoomStyles({
         wordBreak: 'break-word',
       } as any : {}),
     },
+    transcriptTextLegacyHidden: {
+      display: 'none',
+    },
     transcriptFooter: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1717,6 +1889,11 @@ function createRoomStyles({
       fontSize: isDesktop ? 10 : 8.5,
       fontWeight: '800',
       letterSpacing: 1.6,
+    },
+    transcriptStateWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
     },
     sendAnswerBtn: {
       flexDirection: 'row',
@@ -1747,7 +1924,7 @@ function createRoomStyles({
       maxHeight: Platform.OS === 'web' ? (isDesktop ? 'calc(100dvh - 116px)' : 'calc(100dvh - 98px)') as any : '100%',
       minHeight: 0,
       alignSelf: 'stretch',
-      backgroundColor: 'rgba(5, 10, 26, 0.18)',
+      backgroundColor: '#07101F',
       borderLeftWidth: 0,
       borderColor: 'rgba(152, 203, 255, 0.08)',
       display: 'flex',

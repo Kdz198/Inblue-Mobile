@@ -15,6 +15,11 @@
           "microphonePermission": "Ứng dụng cần quyền sử dụng Micro để thu âm trả lời phỏng vấn."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "478e1772-3684-45d7-ad22-3d2bb4ad29ca"
+      }
+    }
   }
 }

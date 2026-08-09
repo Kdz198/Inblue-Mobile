@@ -6,7 +6,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -14,8 +13,9 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AIInterviewRoom } from './src/components/AIInterviewRoom';
+import { CyberCanvasBackground as NativeCyberCanvasBackground } from './src/components/CyberCanvasBackground';
 import {
   enterKioskApi,
   getAvailableVoicesApi,
@@ -173,7 +173,7 @@ function CyberCanvasBackground() {
     );
   }
 
-  return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#050A1A' }]} />;
+  return <NativeCyberCanvasBackground />;
 }
 
 /* ───── Lock Open Icon Component ───── */
