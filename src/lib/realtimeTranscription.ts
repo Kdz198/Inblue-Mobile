@@ -66,12 +66,39 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 
+const LINEAR_PCM_16K_OPTIONS: Audio.RecordingOptions = {
+  isMeteringEnabled: true,
+  android: {
+    extension: '.wav',
+    outputFormat: Audio.AndroidOutputFormat.THREE_GPP,
+    audioEncoder: Audio.AndroidAudioEncoder.AMR_NB,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 128000,
+  },
+  ios: {
+    extension: '.wav',
+    audioQuality: Audio.IOSAudioQuality.MAX,
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    bitRate: 256000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+    outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 128000,
+  },
+};
+
 export async function startRealtimeTranscription(
   initialText: string,
   options: RealtimeTranscriptionOptions
 ): Promise<RealtimeTranscriptionHandle> {
   if (!nativePcmAudio) {
-    console.log('Realtime PCM native module not found. Using expo-av recording fallback for Expo Go.');
+    console.log('Realtime PCM native module not found. Using expo-av 16kHz PCM recording fallback for Expo Go.');
 
     let ws: WebSocket | null = null;
     let recording: Audio.Recording | null = null;
@@ -85,7 +112,7 @@ export async function startRealtimeTranscription(
       });
 
       recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.prepareToRecordAsync(LINEAR_PCM_16K_OPTIONS);
       await recording.startAsync();
       options.onReady?.();
     } catch (err: any) {
@@ -119,13 +146,16 @@ export async function startRealtimeTranscription(
             encoding: 'base64',
           });
 
+          const fullBuffer = base64ToArrayBuffer(base64Audio);
+          // Strip 44-byte WAV header so backend receives raw 16kHz S16LE PCM audio
+          const pcmBuffer = fullBuffer.byteLength > 44 ? fullBuffer.slice(44) : fullBuffer;
+
           await new Promise<void>((resolve, reject) => {
             ws = new WebSocket(getRealtimeTranscriptionUrl());
             ws.binaryType = 'arraybuffer';
 
             ws.onopen = () => {
-              const audioBuffer = base64ToArrayBuffer(base64Audio);
-              ws?.send(audioBuffer);
+              ws?.send(pcmBuffer);
               ws?.send(JSON.stringify({ type: 'audio_end' }));
             };
 
