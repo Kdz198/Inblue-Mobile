@@ -19,17 +19,18 @@ export interface PlayAudioOptions {
 
 export async function requestMicrophonePermissionAsync(): Promise<boolean> {
   try {
+    const current = await getRecordingPermissionsAsync();
+    let granted = current.granted || current.status === 'granted';
+    if (!granted) {
+      const requested = await requestRecordingPermissionsAsync();
+      granted = requested.granted || requested.status === 'granted';
+    }
     await setAudioModeAsync({
-      allowsRecording: true,
+      allowsRecording: false,
       playsInSilentMode: true,
       interruptionMode: 'doNotMix',
     });
-    const current = await getRecordingPermissionsAsync();
-    if (current.granted || current.status === 'granted') {
-      return true;
-    }
-    const requested = await requestRecordingPermissionsAsync();
-    return requested.granted || requested.status === 'granted';
+    return granted;
   } catch (error) {
     console.warn('Failed to request native recording permissions:', error);
     return false;
