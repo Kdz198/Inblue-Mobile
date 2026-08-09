@@ -68,7 +68,38 @@ export async function startRealtimeTranscription(
   options: RealtimeTranscriptionOptions
 ): Promise<RealtimeTranscriptionHandle> {
   if (!nativePcmAudio) {
-    throw new Error('Realtime PCM audio module is not available on this platform.');
+    console.warn('Realtime PCM audio module is not available on this platform. Falling back to mock transcription mode for Expo Go.');
+    
+    // Expo Go Mock Mode: simulate transcription updates
+    let stopped = false;
+    let mockText = initialText.trim();
+    
+    setTimeout(() => {
+      if (!stopped) options.onReady?.();
+    }, 500);
+
+    const mockPhrases = ['Đây là', ' phần mềm', ' phỏng vấn AI', ' đang chạy', ' trên Expo Go.'];
+    let phraseIndex = 0;
+    
+    const interval = setInterval(() => {
+      if (stopped) return;
+      if (phraseIndex < mockPhrases.length) {
+        mockText = appendTranscriptSegment(mockText, mockPhrases[phraseIndex]);
+        options.onTranscript(mockText, false);
+        phraseIndex++;
+      } else {
+        options.onTranscript(mockText, true);
+        if (!stopped) options.onClose?.();
+        stopped = true;
+      }
+    }, 2000);
+
+    return {
+      stop: async () => {
+        stopped = true;
+        clearInterval(interval);
+      },
+    };
   }
 
   let ws: WebSocket | null = null;
