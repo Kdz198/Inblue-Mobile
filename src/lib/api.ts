@@ -188,14 +188,15 @@ export async function generateTtsAudioApi(text: string, voiceId?: string): Promi
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      throw new Error(`Táº¡o giá»ng Ä‘á»c AI tháº¥t báº¡i (${response.status})`);
+      console.warn(`TTS API returned status ${response.status}`);
+      throw new Error(`Tạo giọng đọc AI thất bại (${response.status})`);
     }
 
     return await response.blob();
   } catch (err: any) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error('Táº¡o giá»ng Ä‘á»c AI quÃ¡ thá»i gian (Timeout 3 phÃºt). Vui lÃ²ng thá»­ láº¡i!');
+      throw new Error('Tạo giọng đọc AI quá thời gian (Timeout 3 phút). Vui lòng thử lại!');
     }
     throw err;
   }
