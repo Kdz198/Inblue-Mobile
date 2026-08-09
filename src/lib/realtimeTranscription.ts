@@ -151,6 +151,8 @@ export async function startRealtimeTranscription(
       throw err;
     }
 
+    let onTurnCompleteHandler: (() => void) | null = null;
+
     // Connect WebSocket immediately for live streaming
     try {
       ws = new WebSocket(getRealtimeTranscriptionUrl());
@@ -167,13 +169,21 @@ export async function startRealtimeTranscription(
         if (!message) return;
 
         if (message.type === 'transcript' && message.text) {
-          const liveText = appendTranscriptSegment(committedText, message.text);
-          options.onTranscript(liveText, false);
+          committedText = appendTranscriptSegment(committedText, message.text);
+          options.onTranscript(committedText, false);
         } else if (message.type === 'turn_complete') {
           options.onTranscript(committedText, true);
+          if (onTurnCompleteHandler) {
+            onTurnCompleteHandler();
+            onTurnCompleteHandler = null;
+          }
         } else if (message.type === 'error') {
           console.warn('[Expo Go Realtime] STT Server Error:', message.message);
           options.onError?.(new Error(message.message || 'Transcription error'));
+          if (onTurnCompleteHandler) {
+            onTurnCompleteHandler();
+            onTurnCompleteHandler = null;
+          }
         }
       };
 
@@ -210,8 +220,8 @@ export async function startRealtimeTranscription(
     }, 250);
 
     return {
-      stop: async () => {
-        if (stopped) return;
+      stop: () => {
+        if (stopped) return Promise.resolve();
         stopped = true;
 
         if (streamTimer) {
@@ -219,49 +229,61 @@ export async function startRealtimeTranscription(
           streamTimer = null;
         }
 
-        let audioUri: string | null = null;
-        const currentRec = globalExpoAvRecording;
-        globalExpoAvRecording = null;
+        return new Promise<void>(async resolve => {
+          let audioUri: string | null = null;
+          const currentRec = globalExpoAvRecording;
+          globalExpoAvRecording = null;
 
-        try {
-          if (currentRec) {
-            await currentRec.stopAndUnloadAsync();
-            audioUri = currentRec.getURI();
-          }
-        } catch (e) {
-          console.warn('Error stopping recording:', e);
-        }
-
-        try {
-          await Audio.setAudioModeAsync({
-            allowsRecordingIOS: false,
-            playsInSilentModeIOS: true,
-          });
-        } catch {}
-
-        if (audioUri && ws && ws.readyState === WebSocket.OPEN) {
           try {
-            const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
-            const fullBuffer = base64ToArrayBuffer(base64Audio);
-            const availableBytes = fullBuffer.byteLength - lastSentOffset;
-
-            if (availableBytes >= 2) {
-              const alignedLength = (availableBytes >> 1) << 1;
-              const finalChunk = fullBuffer.slice(lastSentOffset, lastSentOffset + alignedLength);
-              ws.send(finalChunk);
+            if (currentRec) {
+              await currentRec.stopAndUnloadAsync();
+              audioUri = currentRec.getURI();
             }
-            ws.send(JSON.stringify({ type: 'audio_end' }));
           } catch (e) {
-            console.warn('Error sending final audio chunk:', e);
+            console.warn('Error stopping recording:', e);
           }
-        }
 
-        setTimeout(() => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.close();
+          try {
+            await Audio.setAudioModeAsync({
+              allowsRecordingIOS: false,
+              playsInSilentModeIOS: true,
+            });
+          } catch {}
+
+          if (audioUri && ws && ws.readyState === WebSocket.OPEN) {
+            try {
+              const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
+              const fullBuffer = base64ToArrayBuffer(base64Audio);
+              const availableBytes = fullBuffer.byteLength - lastSentOffset;
+
+              if (availableBytes >= 2) {
+                const alignedLength = (availableBytes >> 1) << 1;
+                const finalChunk = fullBuffer.slice(lastSentOffset, lastSentOffset + alignedLength);
+                ws.send(finalChunk);
+              }
+              console.log('[Expo Go Realtime] Sent final audio chunk. Sending audio_end...');
+              ws.send(JSON.stringify({ type: 'audio_end' }));
+            } catch (e) {
+              console.warn('Error sending final audio chunk:', e);
+            }
           }
-          options.onClose?.();
-        }, 1500);
+
+          // Safety timeout of 3s to resolve if server turn_complete doesn't arrive
+          const safetyTimeout = setTimeout(() => {
+            console.log('[Expo Go Realtime] Turn complete safety timeout reached.');
+            onTurnCompleteHandler = null;
+            try { ws?.close(); } catch {}
+            options.onClose?.();
+            resolve();
+          }, 3000);
+
+          onTurnCompleteHandler = () => {
+            clearTimeout(safetyTimeout);
+            try { ws?.close(); } catch {}
+            options.onClose?.();
+            resolve();
+          };
+        });
       },
     };
   }
