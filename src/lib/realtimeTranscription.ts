@@ -137,10 +137,19 @@ export async function startRealtimeTranscription(
           if (recording) {
             await recording.stopAndUnloadAsync();
             audioUri = recording.getURI();
+            recording = null;
           }
         } catch (e) {
           console.warn('Error stopping recording:', e);
+          recording = null;
         }
+
+        try {
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: false,
+            playsInSilentModeIOS: true,
+          });
+        } catch {}
 
         if (!audioUri) {
           options.onClose?.();

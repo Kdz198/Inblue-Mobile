@@ -64,6 +64,7 @@ export async function playAudioUri(
 ): Promise<AudioPlayerHandle> {
   try {
     await setAudioModeAsync({
+      allowsRecording: false,
       playsInSilentMode: true,
       interruptionMode: 'doNotMix',
     });
