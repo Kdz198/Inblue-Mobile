@@ -14,12 +14,6 @@
         {
           "microphonePermission": "Ứng dụng cần quyền sử dụng Micro để thu âm trả lời phỏng vấn."
         }
-      ],
-      [
-        "expo-av",
-        {
-          "microphonePermission": "Ứng dụng cần quyền sử dụng Micro để thu âm trả lời phỏng vấn."
-        }
       ]
     ]
   }
