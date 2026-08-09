@@ -106,13 +106,9 @@ export async function startRealtimeTranscription(
   options: RealtimeTranscriptionOptions
 ): Promise<RealtimeTranscriptionHandle> {
   if (!nativePcmAudio) {
-    console.log('Realtime PCM native module not found. Starting progressive 16kHz live streaming for Expo Go.');
+    console.log('Realtime PCM native module not found. Using high-precision 16kHz PCM audio recording for Expo Go.');
 
-    let ws: WebSocket | null = null;
-    let streamTimer: NodeJS.Timeout | null = null;
     let stopped = false;
-    let committedText = initialText.trim();
-    let lastSentOffset = 44; // Skip 44-byte WAV header
 
     // Clean up any stale recording left over from a previous crash/error
     if (globalExpoAvRecording) {
@@ -151,83 +147,10 @@ export async function startRealtimeTranscription(
       throw err;
     }
 
-    let onTurnCompleteHandler: (() => void) | null = null;
-
-    // Connect WebSocket immediately for live streaming
-    try {
-      ws = new WebSocket(getRealtimeTranscriptionUrl());
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        console.log('[Expo Go Realtime] Live WebSocket connected to backend STT.');
-      };
-
-      ws.onmessage = event => {
-        console.log('[Expo Go Realtime] Received WS msg:', event.data);
-        if (typeof event.data !== 'string') return;
-        const message = parseTranscriptionMessage(event.data);
-        if (!message) return;
-
-        if (message.type === 'transcript' && message.text) {
-          committedText = appendTranscriptSegment(committedText, message.text);
-          options.onTranscript(committedText, false);
-        } else if (message.type === 'turn_complete') {
-          options.onTranscript(committedText, true);
-          if (onTurnCompleteHandler) {
-            onTurnCompleteHandler();
-            onTurnCompleteHandler = null;
-          }
-        } else if (message.type === 'error') {
-          console.warn('[Expo Go Realtime] STT Server Error:', message.message);
-          options.onError?.(new Error(message.message || 'Transcription error'));
-          if (onTurnCompleteHandler) {
-            onTurnCompleteHandler();
-            onTurnCompleteHandler = null;
-          }
-        }
-      };
-
-      ws.onerror = err => {
-        console.warn('[Expo Go Realtime] WS Error:', err);
-      };
-    } catch (e) {
-      console.warn('[Expo Go Realtime] Failed to initialize WebSocket:', e);
-    }
-
-    // Progressive live stream timer: read growing WAV file and send 2-byte sample aligned PCM chunks every 200ms
-    streamTimer = setInterval(async () => {
-      if (stopped || !globalExpoAvRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
-
-      try {
-        const audioUri = globalExpoAvRecording.getURI();
-        if (!audioUri) return;
-
-        const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
-        const fullBuffer = base64ToArrayBuffer(base64Audio);
-        const availableBytes = fullBuffer.byteLength - lastSentOffset;
-
-        if (availableBytes >= 2) {
-          // Force 2-byte sample alignment (16-bit PCM S16LE requirement)
-          const alignedLength = (availableBytes >> 1) << 1;
-          const chunk = fullBuffer.slice(lastSentOffset, lastSentOffset + alignedLength);
-          ws.send(chunk);
-          lastSentOffset += alignedLength;
-          console.log(`[Expo Go Realtime] Streamed ${chunk.byteLength} aligned PCM bytes live...`);
-        }
-      } catch (err) {
-        // file read race condition during active recording is normal
-      }
-    }, 200);
-
     return {
       stop: () => {
         if (stopped) return Promise.resolve();
         stopped = true;
-
-        if (streamTimer) {
-          clearInterval(streamTimer);
-          streamTimer = null;
-        }
 
         return new Promise<void>(async resolve => {
           let audioUri: string | null = null;
@@ -250,39 +173,92 @@ export async function startRealtimeTranscription(
             });
           } catch {}
 
-          if (audioUri && ws && ws.readyState === WebSocket.OPEN) {
-            try {
-              const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
-              const fullBuffer = base64ToArrayBuffer(base64Audio);
-              const availableBytes = fullBuffer.byteLength - lastSentOffset;
-
-              if (availableBytes >= 2) {
-                const alignedLength = (availableBytes >> 1) << 1;
-                const finalChunk = fullBuffer.slice(lastSentOffset, lastSentOffset + alignedLength);
-                ws.send(finalChunk);
-              }
-              console.log('[Expo Go Realtime] Sent final audio chunk. Sending audio_end...');
-              ws.send(JSON.stringify({ type: 'audio_end' }));
-            } catch (e) {
-              console.warn('Error sending final audio chunk:', e);
-            }
+          if (!audioUri) {
+            options.onClose?.();
+            resolve();
+            return;
           }
 
-          // Safety timeout of 3s to resolve if server turn_complete doesn't arrive
-          const safetyTimeout = setTimeout(() => {
-            console.log('[Expo Go Realtime] Turn complete safety timeout reached.');
-            onTurnCompleteHandler = null;
-            try { ws?.close(); } catch {}
-            options.onClose?.();
-            resolve();
-          }, 3000);
+          try {
+            const base64Audio = await FileSystem.readAsStringAsync(audioUri, { encoding: 'base64' });
+            const fullBuffer = base64ToArrayBuffer(base64Audio);
+            // Strip 44-byte WAV header so backend receives raw 16kHz S16LE PCM audio
+            const pcmBuffer = fullBuffer.byteLength > 44 ? fullBuffer.slice(44) : fullBuffer;
 
-          onTurnCompleteHandler = () => {
-            clearTimeout(safetyTimeout);
-            try { ws?.close(); } catch {}
+            console.log(`[Expo Go STT] Sending ${pcmBuffer.byteLength} bytes of raw 16kHz PCM audio to Gemini Live...`);
+
+            let committedText = initialText.trim();
+            const ws = new WebSocket(getRealtimeTranscriptionUrl());
+            ws.binaryType = 'arraybuffer';
+
+            let safetyTimer: NodeJS.Timeout | null = null;
+
+            const finish = (finalText?: string) => {
+              if (safetyTimer) {
+                clearTimeout(safetyTimer);
+                safetyTimer = null;
+              }
+              if (finalText !== undefined) {
+                options.onTranscript(finalText, true);
+              }
+              try { ws.close(); } catch {}
+              options.onClose?.();
+              resolve();
+            };
+
+            safetyTimer = setTimeout(() => {
+              console.log('[Expo Go STT] STT response timeout fallback.');
+              finish(committedText || undefined);
+            }, 6000);
+
+            ws.onopen = async () => {
+              console.log('[Expo Go STT] Connected to backend WebSocket STT.');
+              const uint8View = new Uint8Array(pcmBuffer);
+              const CHUNK_SIZE = 3200; // 100ms of 16kHz 16-bit mono audio (3200 bytes)
+              for (let offset = 0; offset < uint8View.length; offset += CHUNK_SIZE) {
+                const end = Math.min(offset + CHUNK_SIZE, uint8View.length);
+                const chunk = uint8View.subarray(offset, end);
+                const chunkBuffer = chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+                ws.send(chunkBuffer);
+                await new Promise(r => setTimeout(r, 15));
+              }
+              console.log('[Expo Go STT] All audio chunks sent. Sending audio_end...');
+              ws.send(JSON.stringify({ type: 'audio_end' }));
+            };
+
+            ws.onmessage = event => {
+              console.log('[Expo Go STT] Received WS msg:', event.data);
+              if (typeof event.data !== 'string') return;
+              const message = parseTranscriptionMessage(event.data);
+              if (!message) return;
+
+              if (message.type === 'transcript' && message.text) {
+                committedText = appendTranscriptSegment(committedText, message.text);
+                options.onTranscript(committedText, false);
+              } else if (message.type === 'turn_complete') {
+                finish(committedText);
+              } else if (message.type === 'error') {
+                console.warn('[Expo Go STT] STT Server Error:', message.message);
+                options.onError?.(new Error(message.message || 'Transcription error'));
+                finish(committedText || undefined);
+              }
+            };
+
+            ws.onerror = err => {
+              console.warn('[Expo Go STT] WS Error:', err);
+              options.onError?.(new Error('WebSocket connection error'));
+              finish(committedText || undefined);
+            };
+
+            ws.onclose = () => {
+              finish(committedText || undefined);
+            };
+          } catch (err: any) {
+            console.warn('Error sending recording audio:', err);
+            options.onError?.(err);
             options.onClose?.();
             resolve();
-          };
+          }
         });
       },
     };
