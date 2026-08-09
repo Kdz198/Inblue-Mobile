@@ -36,7 +36,7 @@ export async function requestMicrophonePermissionAsync(): Promise<boolean> {
   }
 }
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 async function blobToFileUri(blob: Blob): Promise<string> {
   const base64Data = await new Promise<string>((resolve, reject) => {
