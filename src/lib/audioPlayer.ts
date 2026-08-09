@@ -52,7 +52,7 @@ async function blobToFileUri(blob: Blob): Promise<string> {
   
   const fileUri = `${FileSystem.cacheDirectory}tts-${Date.now()}.mp3`;
   await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-    encoding: FileSystem.EncodingType.Base64,
+    encoding: (FileSystem.EncodingType?.Base64 || 'base64') as any,
   });
   
   return fileUri;
