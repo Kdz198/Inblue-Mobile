@@ -36,16 +36,26 @@ export async function requestMicrophonePermissionAsync(): Promise<boolean> {
   }
 }
 
-function blobToDataUri(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
+import * as FileSystem from 'expo-file-system';
+
+async function blobToFileUri(blob: Blob): Promise<string> {
+  const base64Data = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => {
-      const base64Data = reader.result as string;
-      resolve(base64Data);
+      const b64 = reader.result as string;
+      const dataPart = b64.includes(',') ? b64.split(',')[1] : b64;
+      resolve(dataPart);
     };
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+  
+  const fileUri = `${FileSystem.cacheDirectory}tts-${Date.now()}.mp3`;
+  await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  
+  return fileUri;
 }
 
 export async function playAudioUri(
@@ -102,6 +112,6 @@ export async function playAudioBlob(
   blob: Blob,
   options: PlayAudioOptions = {}
 ): Promise<AudioPlayerHandle> {
-  const dataUri = await blobToDataUri(blob);
-  return playAudioUri(dataUri, options);
+  const fileUri = await blobToFileUri(blob);
+  return playAudioUri(fileUri, options);
 }
