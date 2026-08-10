@@ -1,6 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAudioRecorder } from 'expo-audio';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import {
   Animated,
   ActivityIndicator,
@@ -25,10 +23,11 @@ import { CyberCanvasBackground } from './CyberCanvasBackground';
 import { playTtsAudioBlob, type TtsPlayback } from '../lib/ttsAudio';
 import { requestMicrophonePermissionAsync } from '../lib/audioPlayer';
 import {
-  EXPO_GO_PCM_RECORDING_OPTIONS,
   startRealtimeTranscription,
   type RealtimeTranscriptionHandle,
 } from '../lib/realtimeTranscription';
+import { usePlatformAudioRecorder } from '../lib/platformAudioRecorder';
+import { NativeMaterialIcon } from './NativeMaterialIcon';
 
 interface AIInterviewRoomProps {
   sessionKey: string;
@@ -59,7 +58,7 @@ function LineIcon({
 }) {
   if (Platform.OS !== 'web') {
     if (name === 'bot') {
-      return <MaterialCommunityIcons name="robot-outline" size={size} color={color} />;
+      return <NativeMaterialIcon name="robot-outline" size={size} color={color} />;
     }
     const fallback: Record<typeof name, string> = {
       clock: '◷',
@@ -173,7 +172,7 @@ export function AIInterviewRoom({
   onVoiceChange,
   onFinish,
 }: AIInterviewRoomProps) {
-  const expoGoRecorder = useAudioRecorder(EXPO_GO_PCM_RECORDING_OPTIONS);
+  const expoGoRecorder = usePlatformAudioRecorder();
   const { width, height } = useWindowDimensions();
   const isDesktop = width >= 1200;
   const isTablet = width >= 768 && width < 1200;

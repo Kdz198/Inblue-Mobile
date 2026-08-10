@@ -3,6 +3,29 @@ import { BASE_URL } from './api';
 const TARGET_SAMPLE_RATE = 16000;
 const TRANSCRIBE_PATH = '/api/v1/interview/transcribe';
 
+export const EXPO_GO_PCM_RECORDING_OPTIONS = {
+  extension: '.webm',
+  sampleRate: 16000,
+  numberOfChannels: 1,
+  bitRate: 128000,
+  android: {
+    extension: '.webm',
+    outputFormat: 'mpeg4',
+    audioEncoder: 'aac',
+  },
+  ios: {
+    extension: '.webm',
+    audioQuality: 0x7f,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 128000,
+  },
+};
+
 export interface RealtimeTranscriptionHandle {
   stop: () => Promise<void>;
 }
