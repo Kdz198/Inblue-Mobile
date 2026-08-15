@@ -1,3 +1,3 @@
 export function usePlatformAudioRecorder() {
-  return null;
+  return undefined;
 }

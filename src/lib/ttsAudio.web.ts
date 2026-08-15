@@ -4,6 +4,7 @@ export interface TtsPlayback {
 
 export interface TtsPlaybackCallbacks {
   onStart?: () => void;
+  onProgress?: (currentTime: number, duration: number) => void;
   onEnd?: () => void;
   onError?: (error: unknown) => void;
   onVolume?: (energy: number) => void;
@@ -17,6 +18,15 @@ export async function playTtsAudioBlob(blob: Blob, callbacks: TtsPlaybackCallbac
   let source: MediaElementAudioSourceNode | null = null;
   let analyser: AnalyserNode | null = null;
   let volumeFrame: number | null = null;
+  let progressInterval: ReturnType<typeof setInterval> | null = null;
+
+  const emitProgress = () => {
+    const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+    if (duration <= 0) return;
+
+    const currentTime = Math.max(0, Math.min(duration, audio.currentTime));
+    callbacks.onProgress?.(currentTime, duration);
+  };
 
   const stopVolumeMeter = () => {
     if (volumeFrame !== null) {
@@ -36,6 +46,11 @@ export async function playTtsAudioBlob(blob: Blob, callbacks: TtsPlaybackCallbac
   const cleanup = () => {
     if (isCleanedUp) return;
     isCleanedUp = true;
+    if (progressInterval) {
+      clearInterval(progressInterval);
+      progressInterval = null;
+    }
+    audio.removeEventListener('timeupdate', emitProgress);
     stopVolumeMeter();
     window.URL.revokeObjectURL(objectUrl);
   };
@@ -81,12 +96,18 @@ export async function playTtsAudioBlob(blob: Blob, callbacks: TtsPlaybackCallbac
     }
   };
 
+  audio.addEventListener('timeupdate', emitProgress);
+
   audio.onplay = () => {
     callbacks.onStart?.();
     startVolumeMeter();
+    emitProgress();
+    progressInterval = setInterval(emitProgress, 80);
   };
   audio.onpause = () => callbacks.onVolume?.(0);
   audio.onended = () => {
+    const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 1;
+    callbacks.onProgress?.(duration, duration);
     cleanup();
     callbacks.onEnd?.();
   };

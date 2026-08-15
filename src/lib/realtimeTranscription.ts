@@ -75,26 +75,26 @@ import { AudioQuality, IOSOutputFormat, setAudioModeAsync, type RecordingOptions
 import * as FileSystem from 'expo-file-system/legacy';
 
 export const EXPO_GO_PCM_RECORDING_OPTIONS: RecordingOptions = {
+  extension: '.wav',
   isMeteringEnabled: true,
+  sampleRate: 16000,
+  numberOfChannels: 1,
+  bitRate: 128000,
   android: {
     extension: '.wav',
     outputFormat: 'mpeg4',
     audioEncoder: 'aac',
-    sampleRate: 16000,
-    numberOfChannels: 1,
     bitRate: 128000,
-  },
+  } as any,
   ios: {
     extension: '.wav',
     audioQuality: AudioQuality.MAX,
-    sampleRate: 16000,
-    numberOfChannels: 1,
     bitRate: 256000,
     linearPCMBitDepth: 16,
     linearPCMIsBigEndian: false,
     linearPCMIsFloat: false,
     outputFormat: IOSOutputFormat.LINEARPCM,
-  },
+  } as any,
   web: {
     mimeType: 'audio/webm',
     bitsPerSecond: 128000,
@@ -130,8 +130,9 @@ export async function startRealtimeTranscription(
       await setRecordingAudioMode(true);
       await recorder.prepareToRecordAsync(EXPO_GO_PCM_RECORDING_OPTIONS);
       meterSubscription = recorder.addListener('recordingStatusUpdate', status => {
-        if (typeof status.metering !== 'number') return;
-        const level = Math.max(0, Math.min(1, (status.metering + 60) / 60));
+        const metering = (status as any).metering;
+        if (typeof metering !== 'number') return;
+        const level = Math.max(0, Math.min(1, (metering + 60) / 60));
         options.onAudioLevel?.(level);
       });
       recorder.record();

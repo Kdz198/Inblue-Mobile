@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -17,6 +18,7 @@ import {
   generateTtsAudioApi,
   startInterviewApi,
   submitAnswerApi,
+  timeoutInterviewApi,
   type VoiceOption,
 } from '../lib/api';
 import { CyberCanvasBackground } from './CyberCanvasBackground';
@@ -31,6 +33,7 @@ import { NativeMaterialIcon } from './NativeMaterialIcon';
 
 interface AIInterviewRoomProps {
   sessionKey: string;
+  durationMinutes?: number;
   initialVoiceId?: string;
   voices?: VoiceOption[];
   onVoiceChange?: (voiceId: string) => void;
@@ -46,13 +49,14 @@ interface SpeechCallbacks {
 const iconStroke = '#98CBFF';
 const audioWaveRestingLevels = [0.55, 0.78, 1.05, 0.72, 1.25, 0.88, 1.42, 1.08, 1.62, 1.08, 1.42, 0.88, 1.25, 0.72, 1.05, 0.78, 0.55];
 const micWaveMultipliers = [0.34, 0.58, 0.92, 0.5, 1.2, 0.68, 1.42, 0.9, 1.68, 0.9, 1.42, 0.68, 1.2, 0.5, 0.92, 0.58, 0.34];
+type LineIconName = 'clock' | 'history' | 'hide' | 'mic' | 'stop' | 'transcript' | 'edit' | 'send' | 'ai' | 'user' | 'question' | 'bot';
 
 function LineIcon({
   name,
   size = 18,
   color = iconStroke,
 }: {
-  name: 'clock' | 'history' | 'hide' | 'mic' | 'stop' | 'transcript' | 'edit' | 'send' | 'ai' | 'user' | 'question' | 'bot';
+  name: LineIconName;
   size?: number;
   color?: string;
 }) {
@@ -60,7 +64,7 @@ function LineIcon({
     if (name === 'bot') {
       return <NativeMaterialIcon name="robot-outline" size={size} color={color} />;
     }
-    const fallback: Record<typeof name, string> = {
+    const fallback: Record<LineIconName, string> = {
       clock: '◷',
       history: '▤',
       hide: '◌',
@@ -167,6 +171,7 @@ function LineIcon({
 
 export function AIInterviewRoom({
   sessionKey,
+  durationMinutes = 0,
   initialVoiceId = '',
   voices = [],
   onVoiceChange,
@@ -212,22 +217,31 @@ export function AIInterviewRoom({
   const [hasTranscriptResponse, setHasTranscriptResponse] = useState(false);
   const [isLoadingQuestion, setIsLoadingQuestion] = useState(true);
   const [isQuestionAudioLoading, setIsQuestionAudioLoading] = useState(false);
+  const [isQuestionAwaitingSpeech, setIsQuestionAwaitingSpeech] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(() => Math.max(0, Math.floor(durationMinutes * 60)));
+  const [isTimeExpired, setIsTimeExpired] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
+  const [isTranscriptEditing, setIsTranscriptEditing] = useState(false);
   const [thinkingDotStep, setThinkingDotStep] = useState(0);
   const [selectedVoiceId, setSelectedVoiceId] = useState(initialVoiceId || voices[0]?.id || '');
   const [isVoiceMenuOpen, setIsVoiceMenuOpen] = useState(false);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const currentQuestionScrollViewRef = useRef<ScrollView | null>(null);
   const transcriptScrollViewRef = useRef<ScrollView | null>(null);
+  const transcriptInputRef = useRef<TextInput | null>(null);
   const speechResultsEnabledRef = useRef(false);
   const realtimeTranscriptionRef = useRef<RealtimeTranscriptionHandle | null>(null);
   const recordingBaseTranscriptRef = useRef('');
   const finalTranscriptRef = useRef('');
   const silenceStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const interviewDeadlineRef = useRef<number | null>(null);
+  const timeoutReportedRef = useRef(false);
+  const timeoutExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toggleRecordingRef = useRef<(() => Promise<void>) | null>(null);
   const micAudioContextRef = useRef<any>(null);
   const micAudioSourceRef = useRef<any>(null);
@@ -315,6 +329,26 @@ export function AIInterviewRoom({
     transcriptScrollViewRef.current?.scrollToEnd({ animated: true });
   }, [answerInput]);
 
+  useEffect(() => {
+    if (!spokenQuestionText) return;
+    currentQuestionScrollViewRef.current?.scrollToEnd({ animated: true });
+  }, [spokenQuestionText]);
+
+  useEffect(() => {
+    if (!isTranscriptEditing) return;
+
+    const focusTimer = setTimeout(() => {
+      transcriptInputRef.current?.focus();
+    }, 50);
+
+    return () => clearTimeout(focusTimer);
+  }, [isTranscriptEditing]);
+
+  const handleTranscriptTextChange = useCallback((text: string) => {
+    setAnswerInput(text);
+    finalTranscriptRef.current = text.trim();
+  }, []);
+
   const resetAudioWave = useCallback((duration = 180) => {
     audioWaveLevels.forEach((level, index) => {
       Animated.timing(level, {
@@ -363,6 +397,40 @@ export function AIInterviewRoom({
 
     resetAudioWave();
   }, [resetAudioWave]);
+
+  const stopRecordingForTranscriptEdit = useCallback(async () => {
+    if (silenceStopTimerRef.current) {
+      clearTimeout(silenceStopTimerRef.current);
+      silenceStopTimerRef.current = null;
+    }
+
+    speechResultsEnabledRef.current = false;
+    setIsRecording(false);
+    setIsProcessingTranscript(false);
+    stopMicAudioMeter();
+
+    const activeTranscription = realtimeTranscriptionRef.current;
+    realtimeTranscriptionRef.current = null;
+
+    try {
+      await activeTranscription?.stop();
+    } catch (error) {
+      console.warn('Stop recording before transcript edit failed:', error);
+    }
+  }, [stopMicAudioMeter]);
+
+  const handleTranscriptEditPress = useCallback(() => {
+    if (isTranscriptEditing) {
+      setIsTranscriptEditing(false);
+      return;
+    }
+
+    if (isRecording) {
+      void stopRecordingForTranscriptEdit();
+    }
+
+    setIsTranscriptEditing(true);
+  }, [isRecording, isTranscriptEditing, stopRecordingForTranscriptEdit]);
 
   const startMicAudioMeter = useCallback(async () => {
     stopMicAudioMeter();
@@ -473,7 +541,7 @@ export function AIInterviewRoom({
     }
   }, [aiSpeechAuraOpacity, aiSpeechAuraScale]);
 
-  const speakWithBrowserFallback = useCallback((text: string) => {
+  const speakWithBrowserFallback = useCallback((text: string, callbacks: SpeechCallbacks = {}) => {
     if (Platform.OS === 'web' && 'speechSynthesis' in window) {
       try {
         resetAudioWave(120);
@@ -484,8 +552,13 @@ export function AIInterviewRoom({
         utterance.onstart = () => {
           setIsAiSpeaking(true);
           pulseAiSpeechAura();
+          callbacks.onStart?.();
         };
-        utterance.onboundary = () => pulseAiSpeechAura();
+        utterance.onboundary = event => {
+          pulseAiSpeechAura();
+          const charIndex = Math.max(0, Math.min(text.length, event.charIndex || 0));
+          callbacks.onProgress?.(charIndex, text.length);
+        };
         utterance.onpause = () => setIsAiSpeaking(false);
         utterance.onresume = () => {
           setIsAiSpeaking(true);
@@ -495,18 +568,21 @@ export function AIInterviewRoom({
           setIsAiSpeaking(false);
           setAiSpeechAuraEnergy(0);
           resetAudioWave();
+          callbacks.onEnd?.();
         };
         utterance.onerror = () => {
           setIsAiSpeaking(false);
           setAiSpeechAuraEnergy(0);
           resetAudioWave();
+          callbacks.onEnd?.();
         };
         window.speechSynthesis.speak(utterance);
       } catch (e) {
-        console.warn(e);
+        console.warn('Browser speech fallback failed:', e);
         setIsAiSpeaking(false);
         setAiSpeechAuraEnergy(0);
         resetAudioWave();
+        callbacks.onEnd?.();
       }
     }
   }, [pulseAiSpeechAura, resetAudioWave, setAiSpeechAuraEnergy]);
@@ -548,9 +624,10 @@ export function AIInterviewRoom({
           setIsAiSpeaking(false);
           setAiSpeechAuraEnergy(0);
           resetAudioWave();
-          notifyStart();
-          callbacks.onProgress?.(1, 1);
-          speakWithBrowserFallback(text);
+          speakWithBrowserFallback(text, {
+            ...callbacks,
+            onStart: notifyStart,
+          });
         },
         onVolume: energy => {
           setAiSpeechAuraEnergy(energy);
@@ -561,9 +638,10 @@ export function AIInterviewRoom({
       setIsAiSpeaking(false);
       setAiSpeechAuraEnergy(0);
       resetAudioWave();
-      notifyStart();
-      callbacks.onProgress?.(1, 1);
-      speakWithBrowserFallback(text);
+      speakWithBrowserFallback(text, {
+        ...callbacks,
+        onStart: notifyStart,
+      });
     }
   }, [
     pulseAiSpeechAura,
@@ -579,6 +657,79 @@ export function AIInterviewRoom({
       stopTtsPlayback();
     };
   }, [stopTtsPlayback]);
+
+  useEffect(() => {
+    const totalSeconds = Math.max(0, Math.floor(durationMinutes * 60));
+    if (totalSeconds <= 0) {
+      setRemainingSeconds(0);
+      return undefined;
+    }
+
+    const startedAt = Date.now();
+    interviewDeadlineRef.current = startedAt + totalSeconds * 1000;
+    timeoutReportedRef.current = false;
+    setRemainingSeconds(totalSeconds);
+    setIsTimeExpired(false);
+
+    const timer = setInterval(() => {
+      const deadline = interviewDeadlineRef.current;
+      if (!deadline) return;
+
+      const nextRemaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setRemainingSeconds(nextRemaining);
+
+      if (nextRemaining <= 0) {
+        clearInterval(timer);
+        setIsTimeExpired(true);
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      interviewDeadlineRef.current = null;
+    };
+  }, [durationMinutes]);
+
+  useEffect(() => {
+    if (!isTimeExpired || isFinished) return undefined;
+
+    if (silenceStopTimerRef.current) {
+      clearTimeout(silenceStopTimerRef.current);
+      silenceStopTimerRef.current = null;
+    }
+
+    speechResultsEnabledRef.current = false;
+    setIsRecording(false);
+    setIsProcessingTranscript(false);
+    setIsSubmitting(false);
+    setIsTranscriptEditing(false);
+    stopMicAudioMeter();
+    stopTtsPlayback();
+
+    const activeTranscription = realtimeTranscriptionRef.current;
+    realtimeTranscriptionRef.current = null;
+    void activeTranscription?.stop().catch(error => {
+      console.warn('Stop transcription after interview timeout failed:', error);
+    });
+
+    if (!timeoutReportedRef.current) {
+      timeoutReportedRef.current = true;
+      void timeoutInterviewApi(sessionKey).catch(error => {
+        console.warn('Report interview timeout failed:', error);
+      });
+    }
+
+    timeoutExitTimerRef.current = setTimeout(() => {
+      onFinish();
+    }, 3200);
+
+    return () => {
+      if (timeoutExitTimerRef.current) {
+        clearTimeout(timeoutExitTimerRef.current);
+        timeoutExitTimerRef.current = null;
+      }
+    };
+  }, [isFinished, isTimeExpired, onFinish, sessionKey, stopMicAudioMeter, stopTtsPlayback]);
 
   // Handle Response from API (Start or Submit)
   const handleApiResponse = useCallback((data: InterviewStartResponse) => {
@@ -603,20 +754,35 @@ export function AIInterviewRoom({
         content: data.questionContent,
         timestamp: nowStr,
       };
+      let questionAudioStartedAt = 0;
+      let questionHadProgress = false;
       setSpokenQuestionText('');
       setIsQuestionAudioLoading(true);
+      setIsQuestionAwaitingSpeech(true);
       speakText(data.questionContent, undefined, {
         onStart: () => {
+          questionAudioStartedAt = Date.now();
           setIsQuestionAudioLoading(false);
-          setSpokenQuestionText(' ');
           setMessages(prev => [...prev, newMsg]);
         },
         onProgress: (currentTime, duration) => {
+          if (duration <= 0) return;
           const progress = Math.max(0, Math.min(1, currentTime / duration));
-          const characterCount = Math.max(1, Math.floor(data.questionContent!.length * progress));
-          setSpokenQuestionText(data.questionContent!.slice(0, characterCount));
+          questionHadProgress = true;
+          const characterCount = Math.floor(data.questionContent!.length * progress);
+          if (characterCount > 0) {
+            setIsQuestionAwaitingSpeech(false);
+          }
+          setSpokenQuestionText(currentText => {
+            if (currentText.length >= characterCount) return currentText;
+            return data.questionContent!.slice(0, characterCount);
+          });
         },
         onEnd: () => {
+          const elapsedMs = questionAudioStartedAt ? Date.now() - questionAudioStartedAt : 0;
+          const canShowFullText = questionHadProgress || elapsedMs > 1500;
+          if (!canShowFullText) return;
+          setIsQuestionAwaitingSpeech(false);
           setSpokenQuestionText(data.questionContent!);
         },
       });
@@ -786,6 +952,7 @@ export function AIInterviewRoom({
     } catch {}
     realtimeTranscriptionRef.current = null;
     setAnswerInput('');
+    setIsTranscriptEditing(false);
     recordingBaseTranscriptRef.current = '';
     finalTranscriptRef.current = '';
     stopMicAudioMeter();
@@ -819,8 +986,19 @@ export function AIInterviewRoom({
   };
 
   // Latest AI Question for display on main stage
-  const latestAiQuestion = spokenQuestionText || messages.filter(m => m.role === 'ai').pop()?.content || 'Đang kết nối với Trợ lý phỏng vấn AI...';
-  const isQuestionPending = isLoadingQuestion || isSubmitting || isQuestionAudioLoading;
+  const latestAiQuestion = isQuestionAwaitingSpeech
+    ? ''
+    : spokenQuestionText || messages.filter(m => m.role === 'ai').pop()?.content || 'Đang kết nối với Trợ lý phỏng vấn AI...';
+  const hasVisibleAiQuestion = Boolean(spokenQuestionText.trim() || messages.some(m => m.role === 'ai'));
+  const isQuestionPending = isLoadingQuestion || isSubmitting || isQuestionAwaitingSpeech || (isQuestionAudioLoading && !hasVisibleAiQuestion);
+  const totalInterviewSeconds = Math.max(0, Math.floor(durationMinutes * 60));
+  const countdownMinutes = Math.floor(remainingSeconds / 60);
+  const countdownSeconds = remainingSeconds % 60;
+  const countdownText = totalInterviewSeconds > 0
+    ? `${String(countdownMinutes).padStart(2, '0')}:${String(countdownSeconds).padStart(2, '0')}`
+    : '--:--';
+  const countdownProgress = totalInterviewSeconds > 0 ? Math.max(0, Math.min(1, remainingSeconds / totalInterviewSeconds)) : 1;
+  const isCountdownUrgent = totalInterviewSeconds > 0 && remainingSeconds <= Math.min(300, totalInterviewSeconds * 0.2);
   const selectedVoice = voices.find(voice => voice.id === selectedVoiceId) || voices[0];
   const handleSelectVoiceDuringInterview = (voiceId: string) => {
     setSelectedVoiceId(voiceId);
@@ -857,6 +1035,22 @@ export function AIInterviewRoom({
           <View style={styles.clockBox}>
             <LineIcon name="clock" size={18} />
             <Text style={styles.clockText}>{clockStr}</Text>
+          </View>
+
+          <View style={[styles.countdownBox, isCountdownUrgent && styles.countdownBoxUrgent]}>
+            <View style={styles.countdownTopLine}>
+              <Text style={[styles.countdownLabel, isCountdownUrgent && styles.countdownLabelUrgent]}>CÒN LẠI</Text>
+              <Text style={[styles.countdownText, isCountdownUrgent && styles.countdownTextUrgent]}>{countdownText}</Text>
+            </View>
+            <View style={styles.countdownTrack}>
+              <View
+                style={[
+                  styles.countdownFill,
+                  isCountdownUrgent && styles.countdownFillUrgent,
+                  { width: `${countdownProgress * 100}%` },
+                ]}
+              />
+            </View>
           </View>
 
           {voices.length > 0 && (
@@ -969,10 +1163,12 @@ export function AIInterviewRoom({
                     </View>
                   ) : (
                     <ScrollView
+                      ref={currentQuestionScrollViewRef}
                       style={{ maxHeight: isDesktop ? 120 : (isTablet ? 82 : 72), width: '100%' }}
                       contentContainerStyle={{ alignItems: 'center', justifyContent: 'center' }}
                       showsVerticalScrollIndicator={false}
                       nestedScrollEnabled
+                      onContentSizeChange={() => currentQuestionScrollViewRef.current?.scrollToEnd({ animated: true })}
                     >
                       <Text style={styles.questionCardBody}>{latestAiQuestion}</Text>
                     </ScrollView>
@@ -1065,10 +1261,11 @@ export function AIInterviewRoom({
                       <Text style={styles.transcriptTitle}>BẢN DỊCH TRỰC TIẾP</Text>
                     </View>
                     <Pressable
-                      onPress={() => setIsDrawerOpen(true)}
+                      onPress={handleTranscriptEditPress}
+                      disabled={isProcessingTranscript}
                       style={({ pressed }) => [styles.transcriptEditBtn, pressed && { opacity: 0.75 }]}
                     >
-                      <Text style={styles.transcriptEditText}>CHỈNH SỬA</Text>
+                      <Text style={styles.transcriptEditText}>{isTranscriptEditing ? 'XONG' : 'CHỈNH SỬA'}</Text>
                       <LineIcon name="edit" size={13} color="#9CAFC5" />
                     </Pressable>
                   </View>
@@ -1081,24 +1278,41 @@ export function AIInterviewRoom({
                     showsVerticalScrollIndicator={false}
                     nestedScrollEnabled
                   >
-                    <Text style={styles.transcriptText}>
-                      {isProcessingTranscript
-                        ? '"Đang xử lý bản ghi âm..."'
-                        : answerInput.trim()
-                        ? `"${answerInput.trim()}"`
-                        : isRecording
-                        ? '"Đang lắng nghe câu trả lời của bạn..."'
-                        : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
-                    </Text>
-                    <Text style={styles.transcriptTextLegacyHidden}>
-                      {isProcessingTranscript
-                        ? '"Äang xá»­ lÃ½ báº£n ghi Ã¢m..."'
-                        : answerInput.trim()
-                        ? `"${answerInput.trim()}"`
-                        : isRecording
-                        ? '"Đang lắng nghe câu trả lời của bạn..."'
-                        : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
-                    </Text>
+                    {isTranscriptEditing ? (
+                      <TextInput
+                        ref={transcriptInputRef}
+                        value={answerInput}
+                        onChangeText={handleTranscriptTextChange}
+                        onSubmitEditing={() => setIsTranscriptEditing(false)}
+                        style={styles.transcriptInput}
+                        multiline
+                        placeholder={isRecording ? 'Đang lắng nghe câu trả lời của bạn...' : 'Nhập hoặc chỉnh sửa câu trả lời...'}
+                        placeholderTextColor="rgba(226, 232, 240, 0.48)"
+                        editable={!isProcessingTranscript}
+                        textAlignVertical="top"
+                      />
+                    ) : (
+                      <>
+                        <Text style={styles.transcriptText}>
+                          {isProcessingTranscript
+                            ? '"Đang xử lý bản ghi âm..."'
+                            : answerInput.trim()
+                            ? `"${answerInput.trim()}"`
+                            : isRecording
+                            ? '"Đang lắng nghe câu trả lời của bạn..."'
+                            : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
+                        </Text>
+                        <Text style={styles.transcriptTextLegacyHidden}>
+                          {isProcessingTranscript
+                            ? '"Äang xá»­ lÃ½ báº£n ghi Ã¢m..."'
+                            : answerInput.trim()
+                            ? `"${answerInput.trim()}"`
+                            : isRecording
+                            ? '"Đang lắng nghe câu trả lời của bạn..."'
+                            : '"Nhấn mic để bắt đầu trả lời bằng giọng nói."'}
+                        </Text>
+                      </>
+                    )}
                   </ScrollView>
                   <View style={styles.transcriptFooter}>
                     <View style={styles.transcriptStateWrap}>
@@ -1179,15 +1393,6 @@ export function AIInterviewRoom({
                 );
               })}
             </ScrollView>
-
-            <View style={styles.drawerTypingRow}>
-              <View style={styles.drawerTypingDots}>
-                <View style={styles.drawerTypingDotMuted} />
-                <View style={styles.drawerTypingDot} />
-                <View style={styles.drawerTypingDotStrong} />
-              </View>
-              <Text style={styles.drawerTypingText}>THANH LAN IS TYPING...</Text>
-            </View>
           </View>
         )}
       </View>
@@ -1202,6 +1407,23 @@ export function AIInterviewRoom({
         </View>
         <Text style={styles.footerText}>POWERED BY INBLUE PLATFORM</Text>
       </View>
+
+      {isTimeExpired && !isFinished && (
+        <View style={styles.timeoutOverlay}>
+          <View style={styles.timeoutCard}>
+            <View style={styles.timeoutIconRing}>
+              <LineIcon name="clock" size={32} color="#FCA5A5" />
+            </View>
+            <Text style={styles.timeoutTitle}>Đã hết giờ phỏng vấn</Text>
+            <Text style={styles.timeoutSubtitle}>
+              Thời lượng làm bài đã kết thúc. Hệ thống sẽ đưa bạn trở về màn hình kiosk.
+            </Text>
+            <View style={styles.timeoutProgressTrack}>
+              <View style={styles.timeoutProgressFill} />
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -1323,6 +1545,58 @@ function createRoomStyles({
       fontSize: isDesktop ? 12.5 : 11,
       fontWeight: '700',
       fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    countdownBox: {
+      width: isDesktop ? 132 : 112,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.16)',
+      backgroundColor: 'rgba(15, 23, 42, 0.58)',
+      paddingHorizontal: isDesktop ? 12 : 10,
+      paddingVertical: isDesktop ? 6 : 5,
+      gap: 4,
+    },
+    countdownBoxUrgent: {
+      borderColor: 'rgba(252, 165, 165, 0.34)',
+      backgroundColor: 'rgba(127, 29, 29, 0.24)',
+    },
+    countdownTopLine: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    countdownLabel: {
+      color: 'rgba(152, 203, 255, 0.72)',
+      fontSize: isDesktop ? 8.5 : 7.5,
+      fontWeight: '900',
+      letterSpacing: 1.2,
+    },
+    countdownLabelUrgent: {
+      color: 'rgba(252, 165, 165, 0.82)',
+    },
+    countdownText: {
+      color: '#E2E8F0',
+      fontSize: isDesktop ? 13 : 11.5,
+      fontWeight: '900',
+      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    },
+    countdownTextUrgent: {
+      color: '#FCA5A5',
+    },
+    countdownTrack: {
+      height: 3,
+      borderRadius: 999,
+      overflow: 'hidden',
+      backgroundColor: 'rgba(148, 163, 184, 0.18)',
+    },
+    countdownFill: {
+      height: '100%',
+      borderRadius: 999,
+      backgroundColor: '#00A3FF',
+    },
+    countdownFillUrgent: {
+      backgroundColor: '#F87171',
     },
     voiceSwitcherWrap: {
       position: 'relative',
@@ -1623,6 +1897,14 @@ function createRoomStyles({
       fontWeight: '600',
       letterSpacing: 0,
       textAlign: 'center',
+      ...(Platform.OS === 'web'
+        ? {
+            width: '100%',
+            whiteSpace: 'normal',
+            overflowWrap: 'anywhere',
+            wordBreak: 'break-word',
+          }
+        : {}),
     },
     questionBubbleTail: {
       position: 'absolute',
@@ -1846,6 +2128,26 @@ function createRoomStyles({
         wordBreak: 'break-word',
       } as any : {}),
     },
+    transcriptInput: {
+      flex: 1,
+      flexShrink: 1,
+      minHeight: isDesktop ? 36 : 26,
+      color: '#E2E8F0',
+      fontSize: isDesktop ? 14 : 12.5,
+      lineHeight: isDesktop ? 20 : 17,
+      fontWeight: '400',
+      padding: 0,
+      margin: 0,
+      borderWidth: 0,
+      backgroundColor: 'transparent',
+      ...(Platform.OS === 'web' ? {
+        outlineStyle: 'none',
+        resize: 'none',
+        whiteSpace: 'normal',
+        overflowWrap: 'anywhere',
+        wordBreak: 'break-word',
+      } as any : {}),
+    },
     transcriptTextLegacyHidden: {
       display: 'none',
     },
@@ -2020,43 +2322,6 @@ function createRoomStyles({
       fontSize: isDesktop ? 10 : 8.5,
       alignSelf: 'flex-end',
     },
-    drawerTypingRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 7,
-      paddingTop: isDesktop ? 10 : 6,
-      borderTopWidth: 1,
-      borderColor: 'rgba(152, 203, 255, 0.08)',
-    },
-    drawerTypingDots: {
-      flexDirection: 'row',
-      gap: 4,
-    },
-    drawerTypingDotMuted: {
-      width: 4,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: 'rgba(0, 163, 255, 0.35)',
-    },
-    drawerTypingDot: {
-      width: 4,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: 'rgba(0, 163, 255, 0.58)',
-    },
-    drawerTypingDotStrong: {
-      width: 4,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: '#00A3FF',
-    },
-    drawerTypingText: {
-      color: 'rgba(148, 163, 184, 0.7)',
-      fontSize: isDesktop ? 9 : 8,
-      fontWeight: '800',
-      letterSpacing: 1,
-    },
-
     /* ── Footer ── */
     footerBar: {
       height: isDesktop ? 44 : 38,
@@ -2085,6 +2350,71 @@ function createRoomStyles({
       fontSize: isDesktop ? 10 : 8.5,
       fontWeight: '800',
       letterSpacing: isDesktop ? 2 : 1.2,
+    },
+    timeoutOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 200,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: isDesktop ? 40 : 24,
+      backgroundColor: 'rgba(5, 10, 26, 0.74)',
+    },
+    timeoutCard: {
+      width: '100%',
+      maxWidth: isDesktop ? 520 : 420,
+      alignItems: 'center',
+      borderRadius: 18,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(252, 165, 165, 0.24)',
+      backgroundColor: 'rgba(8, 17, 32, 0.96)',
+      padding: isDesktop ? 30 : 24,
+      shadowColor: '#EF4444',
+      shadowOpacity: 0.18,
+      shadowRadius: 28,
+      ...(Platform.OS === 'web' ? {
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+      } as any : {}),
+    },
+    timeoutIconRing: {
+      width: 70,
+      height: 70,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(252, 165, 165, 0.24)',
+      backgroundColor: 'rgba(127, 29, 29, 0.18)',
+      marginBottom: 14,
+    },
+    timeoutTitle: {
+      color: '#FCA5A5',
+      fontSize: isDesktop ? 24 : 20,
+      fontWeight: '900',
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    timeoutSubtitle: {
+      color: 'rgba(226, 232, 240, 0.78)',
+      fontSize: isDesktop ? 14 : 12.5,
+      fontWeight: '700',
+      lineHeight: isDesktop ? 22 : 19,
+      textAlign: 'center',
+      maxWidth: 380,
+      marginBottom: 18,
+    },
+    timeoutProgressTrack: {
+      width: '100%',
+      height: 3,
+      borderRadius: 999,
+      overflow: 'hidden',
+      backgroundColor: 'rgba(148, 163, 184, 0.16)',
+    },
+    timeoutProgressFill: {
+      width: '100%',
+      height: '100%',
+      borderRadius: 999,
+      backgroundColor: '#F87171',
     },
 
     /* ── Stage Completion / Evaluation ── */

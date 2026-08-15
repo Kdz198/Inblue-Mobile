@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Keyboard,
@@ -10,6 +11,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -19,12 +21,16 @@ import { CyberCanvasBackground as NativeCyberCanvasBackground } from './src/comp
 import {
   enterKioskApi,
   getAvailableVoicesApi,
+  getAllKiosksApi,
+  loginStaffApi,
   resolveApiAssetUrl,
+  type Kiosk,
   type VoiceOption,
 } from './src/lib/api';
 import { playAudioUri, type AudioPlayerHandle } from './src/lib/audioPlayer';
 
 const PIN_LENGTH = 6;
+const WEB_KIOSK_STORAGE_KEY = 'inblue.currentKiosk';
 
 const KIOSK_INIT_STATES = [
   {
@@ -46,6 +52,7 @@ const KIOSK_INIT_STATES = [
 ];
 
 type AppScreenState = 'PIN_ENTRY' | 'VOICE_SELECT' | 'AI_ROOM';
+type KioskSettingsMode = 'LOGIN' | 'SELECT';
 
 const C = {
   bg: '#050A1A',
@@ -253,6 +260,43 @@ function RealTimeDateWidget({ styles }: { styles: any }) {
   );
 }
 
+function decodeJwtPayload(token: string): any {
+  const payload = token.split('.')[1];
+  if (!payload) return null;
+
+  const base64 = payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '=');
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  let output = '';
+  let buffer = 0;
+  let bits = 0;
+
+  for (let i = 0; i < base64.length; i += 1) {
+    const value = chars.indexOf(base64[i]);
+    if (value < 0 || value === 64) continue;
+    buffer = (buffer << 6) | value;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      output += String.fromCharCode((buffer >> bits) & 0xff);
+    }
+  }
+
+  try {
+    return JSON.parse(decodeURIComponent(output.split('').map(char => `%${(`00${char.charCodeAt(0).toString(16)}`).slice(-2)}`).join('')));
+  } catch {
+    try {
+      return JSON.parse(output);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function isStaffToken(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  return Array.isArray(payload?.roles) && payload.roles.includes('ROLE_STAFF');
+}
+
 /* ───── Main App Controller ───── */
 function App() {
   const { width, height } = useWindowDimensions();
@@ -264,6 +308,7 @@ function App() {
   const [screenState, setScreenState] = useState<AppScreenState>('PIN_ENTRY');
   const [pin, setPin] = useState('');
   const [aiSessionKey, setAiSessionKey] = useState('');
+  const [interviewDurationMinutes, setInterviewDurationMinutes] = useState(0);
   const [voices, setVoices] = useState<VoiceOption[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState('');
   const [isLoadingVoices, setIsLoadingVoices] = useState(false);
@@ -271,6 +316,16 @@ function App() {
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [selectedKiosk, setSelectedKiosk] = useState<Kiosk | null>(null);
+  const [isKioskSettingsOpen, setIsKioskSettingsOpen] = useState(false);
+  const [kioskSettingsMode, setKioskSettingsMode] = useState<KioskSettingsMode>('LOGIN');
+  const [staffEmail, setStaffEmail] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
+  const [staffToken, setStaffToken] = useState('');
+  const [kiosks, setKiosks] = useState<Kiosk[]>([]);
+  const [kioskSettingsError, setKioskSettingsError] = useState<string | null>(null);
+  const [kioskSuccessMessage, setKioskSuccessMessage] = useState<string | null>(null);
+  const [isKioskSettingsLoading, setIsKioskSettingsLoading] = useState(false);
   const previewAudioRef = useRef<any>(null);
   const previewWaveFrameRef = useRef<number | null>(null);
   const previewAudioContextRef = useRef<any>(null);
@@ -280,6 +335,19 @@ function App() {
   const initSpin = useRef(new Animated.Value(0)).current;
   const initTextFade = useRef(new Animated.Value(1)).current;
   const [initStepIndex, setInitStepIndex] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+
+    try {
+      const saved = window.localStorage.getItem(WEB_KIOSK_STORAGE_KEY);
+      if (saved) {
+        setSelectedKiosk(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.warn('Unable to load saved kiosk config:', error);
+    }
+  }, []);
 
   const loadVoices = useCallback(async () => {
     setIsLoadingVoices(true);
@@ -299,13 +367,20 @@ function App() {
 
   // Imperative PIN submit handler directly called upon 6-digit entry
   const handlePinSubmit = useCallback(async (targetPin: string) => {
+    if (!selectedKiosk?.id) {
+      setAuthError('Vui lòng cấu hình kiosk trước khi nhập mã PIN.');
+      setPin('');
+      return;
+    }
+
     setIsVerifying(true);
     setAuthError(null);
     Keyboard.dismiss();
 
     try {
-      const res = await enterKioskApi(targetPin);
+      const res = await enterKioskApi(targetPin, selectedKiosk.id);
       setAiSessionKey(res.aiSessionKey || targetPin);
+      setInterviewDurationMinutes(Number(res.durationMinutes) || 0);
       setIsVerifying(false);
       setScreenState('VOICE_SELECT');
       void loadVoices();
@@ -315,11 +390,20 @@ function App() {
       let rawErr = err.message || 'Xác thực không thành công. Vui lòng thử lại!';
       if (rawErr.toLowerCase().includes('booking not found')) {
         rawErr = 'Không tìm thấy lịch hẹn phỏng vấn cho mã PIN này!';
+      } else if (rawErr.toLowerCase().includes('booking has been cancelled')) {
+        rawErr = 'Lịch hẹn phỏng vấn này đã bị hủy.';
+      } else if (rawErr.toLowerCase().includes('not for the specified kiosk')) {
+        rawErr = 'Mã PIN này không thuộc kiosk đang được cấu hình.';
+      } else if (rawErr.toLowerCase().includes('within 15 minutes of your scheduled start time')) {
+        const scheduledTime = rawErr.match(/\(([^)]+)\)/)?.[1];
+        rawErr = scheduledTime
+          ? `Bạn chỉ có thể vào kiosk trong vòng 15 phút trước hoặc sau giờ hẹn (${scheduledTime}).`
+          : 'Bạn chỉ có thể vào kiosk trong vòng 15 phút trước hoặc sau giờ hẹn.';
       }
       setAuthError(rawErr);
       setPin('');
     }
-  }, [loadVoices]);
+  }, [loadVoices, selectedKiosk]);
 
   const pressKey = useCallback((val: string) => {
     if (isVerifying || screenState !== 'PIN_ENTRY') return;
@@ -338,6 +422,83 @@ function App() {
     }
   }, [isVerifying, screenState, pin, handlePinSubmit]);
 
+  const openKioskSettings = useCallback(() => {
+    setIsKioskSettingsOpen(true);
+    setKioskSettingsError(null);
+    setKioskSuccessMessage(null);
+    setKioskSettingsMode('LOGIN');
+    setStaffToken('');
+    setKiosks([]);
+    setStaffPassword('');
+  }, []);
+
+  const closeKioskSettings = useCallback(() => {
+    setIsKioskSettingsOpen(false);
+    setKioskSettingsError(null);
+    setKioskSuccessMessage(null);
+    setIsKioskSettingsLoading(false);
+    setKioskSettingsMode('LOGIN');
+    setStaffToken('');
+    setKiosks([]);
+    setStaffPassword('');
+  }, []);
+
+  const handleStaffLogin = useCallback(async () => {
+    if (!staffEmail.trim() || !staffPassword.trim()) {
+      setKioskSettingsError('Vui lòng nhập tài khoản và mật khẩu nhân viên.');
+      return;
+    }
+
+    setIsKioskSettingsLoading(true);
+    setKioskSettingsError(null);
+    setKioskSuccessMessage(null);
+
+    try {
+      const token = await loginStaffApi(staffEmail.trim(), staffPassword);
+      if (!isStaffToken(token)) {
+        throw new Error('Tài khoản này không có quyền STAFF.');
+      }
+
+      const kioskList = await getAllKiosksApi(token);
+      setStaffToken(token);
+      setKiosks(kioskList.filter(kiosk => kiosk.isActive !== false && kiosk.active !== false));
+      setKioskSettingsMode('SELECT');
+      setStaffPassword('');
+    } catch (error: any) {
+      setKioskSettingsError(error.message || 'Đăng nhập hoặc tải kiosk thất bại.');
+    } finally {
+      setIsKioskSettingsLoading(false);
+    }
+  }, [staffEmail, staffPassword]);
+
+  const handleSelectKiosk = useCallback((kiosk: Kiosk) => {
+    setIsKioskSettingsLoading(true);
+    setKioskSettingsError(null);
+    setKioskSuccessMessage(null);
+    setSelectedKiosk(kiosk);
+    setAuthError(null);
+
+    if (Platform.OS === 'web') {
+      try {
+        window.localStorage.setItem(WEB_KIOSK_STORAGE_KEY, JSON.stringify(kiosk));
+      } catch (error) {
+        console.warn('Unable to save kiosk config:', error);
+      }
+    }
+
+    setKioskSuccessMessage(`Đã cấu hình thành công ${kiosk.name}.`);
+    setStaffToken('');
+    setKiosks([]);
+    setStaffPassword('');
+
+    setTimeout(() => {
+      setIsKioskSettingsLoading(false);
+      setIsKioskSettingsOpen(false);
+      setKioskSettingsMode('LOGIN');
+      setKioskSuccessMessage(null);
+    }, 900);
+  }, []);
+
   const handleVoiceConfirmed = () => {
     setScreenState('AI_ROOM');
   };
@@ -345,6 +506,7 @@ function App() {
   const handleVoiceSelectCancelled = () => {
     setPin('');
     setAiSessionKey('');
+    setInterviewDurationMinutes(0);
     setSelectedVoiceId('');
     setVoices([]);
     setAuthError(null);
@@ -571,6 +733,7 @@ function App() {
   const handleFinishAIRoom = () => {
     setPin('');
     setAiSessionKey('');
+    setInterviewDurationMinutes(0);
     setSelectedVoiceId('');
     setVoices([]);
     setAuthError(null);
@@ -608,6 +771,7 @@ function App() {
         <StatusBar barStyle="light-content" backgroundColor="#050A1A" />
         <AIInterviewRoom
           sessionKey={aiSessionKey}
+          durationMinutes={interviewDurationMinutes}
           initialVoiceId={selectedVoiceId}
           voices={safeVoices}
           onVoiceChange={setSelectedVoiceId}
@@ -664,8 +828,16 @@ function App() {
               )}
 
               {screenState !== 'VOICE_SELECT' && (
-                <View style={styles.clockContainer}>
+                <View style={styles.topControlRow}>
                   <Clock />
+                  {screenState === 'PIN_ENTRY' && !isVerifying && (
+                    <Pressable
+                      onPress={openKioskSettings}
+                      style={({ pressed }) => [styles.kioskGearBtn, pressed && { opacity: 0.75, transform: [{ scale: 0.96 }] }]}
+                    >
+                      <Text style={styles.kioskGearIcon}>⚙</Text>
+                    </Pressable>
+                  )}
                 </View>
               )}
 
@@ -831,6 +1003,12 @@ function App() {
                         Nhập mã PIN 6 số từ lịch hẹn của bạn để bắt đầu.
                       </Text>
 
+                      <Text style={styles.currentKioskText}>
+                        {selectedKiosk
+                          ? `Kiosk hiện tại: ${selectedKiosk.name}${selectedKiosk.location ? ` · ${selectedKiosk.location}` : ''}`
+                          : 'Chưa cấu hình kiosk cho màn hình này'}
+                      </Text>
+
                       {/* 6 Circular PIN Slots */}
                       <View style={styles.pinRow}>
                         {Array.from({ length: PIN_LENGTH }).map((_, idx) => {
@@ -888,6 +1066,109 @@ function App() {
             </View>
           </View>
         </KeyboardAvoidingView>
+
+        {isKioskSettingsOpen && (
+          <View style={styles.kioskModalBackdrop}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeKioskSettings} />
+            <View style={styles.kioskModal}>
+              <View style={styles.kioskModalHeader}>
+                <View>
+                  <Text style={styles.kioskModalEyebrow}>KIOSK SETTINGS</Text>
+                  <Text style={styles.kioskModalTitle}>
+                    {kioskSettingsMode === 'LOGIN' ? 'Đăng nhập nhân viên' : 'Chọn màn hình kiosk'}
+                  </Text>
+                </View>
+                <Pressable onPress={closeKioskSettings} style={styles.kioskModalCloseBtn}>
+                  <Text style={styles.kioskModalCloseText}>×</Text>
+                </Pressable>
+              </View>
+
+              {kioskSettingsMode === 'LOGIN' ? (
+                <View style={styles.kioskLoginForm}>
+                  <TextInput
+                    value={staffEmail}
+                    onChangeText={setStaffEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    placeholder="Email nhân viên"
+                    placeholderTextColor="rgba(190, 199, 212, 0.52)"
+                    style={styles.kioskInput}
+                  />
+                  <TextInput
+                    value={staffPassword}
+                    onChangeText={setStaffPassword}
+                    secureTextEntry
+                    placeholder="Mật khẩu"
+                    placeholderTextColor="rgba(190, 199, 212, 0.52)"
+                    style={styles.kioskInput}
+                  />
+                  {kioskSettingsError && <Text style={styles.kioskSettingsError}>{kioskSettingsError}</Text>}
+                  <Pressable
+                    onPress={handleStaffLogin}
+                    disabled={isKioskSettingsLoading}
+                    style={({ pressed }) => [
+                      styles.kioskPrimaryBtn,
+                      isKioskSettingsLoading && styles.kioskPrimaryBtnDisabled,
+                      pressed && { opacity: 0.88 },
+                    ]}
+                  >
+                    <Text style={styles.kioskPrimaryBtnText}>
+                      {isKioskSettingsLoading ? 'Đang xác thực...' : 'Đăng nhập'}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <View style={styles.kioskSelectWrap}>
+                  {isKioskSettingsLoading || kioskSuccessMessage ? (
+                    <View style={styles.kioskSavingBox}>
+                      {kioskSuccessMessage ? (
+                        <View style={styles.kioskSuccessMark}>
+                          <Text style={styles.kioskSuccessMarkText}>✓</Text>
+                        </View>
+                      ) : (
+                        <ActivityIndicator size="large" color={C.primary} />
+                      )}
+                      <Text style={styles.kioskSavingTitle}>
+                        {kioskSuccessMessage ? 'Cấu hình thành công' : 'Đang lưu cấu hình...'}
+                      </Text>
+                      <Text style={styles.kioskSavingText}>
+                        {kioskSuccessMessage || 'Vui lòng chờ trong giây lát.'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      {kioskSettingsError && <Text style={styles.kioskSettingsError}>{kioskSettingsError}</Text>}
+                      <ScrollView style={styles.kioskList} contentContainerStyle={styles.kioskListContent}>
+                        {kiosks.length === 0 ? (
+                          <Text style={styles.kioskEmptyText}>Không có kiosk đang hoạt động.</Text>
+                        ) : kiosks.map(kiosk => {
+                          const selected = selectedKiosk?.id === kiosk.id;
+                          return (
+                            <Pressable
+                              key={kiosk.id}
+                              onPress={() => handleSelectKiosk(kiosk)}
+                              style={({ pressed }) => [
+                                styles.kioskOption,
+                                selected && styles.kioskOptionSelected,
+                                pressed && { opacity: 0.88 },
+                              ]}
+                            >
+                              <View style={styles.kioskOptionTop}>
+                                <Text style={styles.kioskOptionName}>{kiosk.name}</Text>
+                                <Text style={styles.kioskOptionId}>#{kiosk.id}</Text>
+                              </View>
+                              <Text style={styles.kioskOptionLocation}>{kiosk.location || 'Chưa có vị trí'}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    </>
+                  )}
+                </View>
+              )}
+            </View>
+          </View>
+        )}
 
         <View style={styles.footerBar}>
           <View style={styles.footerMetaGroup}>
@@ -1039,11 +1320,33 @@ function createStyles({ width, height, isWide, isTablet, isDesktop, isShort }: R
       flex: 1,
       width: '100%',
     },
-    clockContainer: {
+    topControlRow: {
       position: 'absolute',
       top: isDesktop ? 48 : (isTablet ? 20 : 14),
       right: isDesktop ? 48 : (isTablet ? 20 : 14),
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
       zIndex: 10,
+    },
+    kioskGearBtn: {
+      width: isDesktop ? 44 : 40,
+      height: isDesktop ? 44 : 40,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(26, 34, 53, 0.52)',
+      borderWidth: 1,
+      borderColor: 'rgba(152, 203, 255, 0.2)',
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.24,
+      shadowRadius: 18,
+    },
+    kioskGearIcon: {
+      color: C.primary,
+      fontSize: isDesktop ? 22 : 19,
+      fontWeight: '900',
+      lineHeight: isDesktop ? 24 : 21,
     },
     rightCenter: {
       flexGrow: 1,
@@ -1310,7 +1613,15 @@ function createStyles({ width, height, isWide, isTablet, isDesktop, isShort }: R
       fontWeight: '400',
       lineHeight: isDesktop ? 28 : (isTablet ? 22 : 20),
       textAlign: 'center',
+      marginBottom: 10,
+    },
+    currentKioskText: {
+      color: 'rgba(152, 203, 255, 0.74)',
+      fontSize: isDesktop ? 12 : 10.5,
+      fontWeight: '800',
+      textAlign: 'center',
       marginBottom: isTablet ? 18 : 28,
+      letterSpacing: 0.4,
     },
     pinRow: {
       flexDirection: 'row',
@@ -1472,6 +1783,196 @@ function createStyles({ width, height, isWide, isTablet, isDesktop, isShort }: R
       textAlign: 'center',
       marginBottom: 24,
       paddingHorizontal: 16,
+    },
+    kioskModalBackdrop: {
+      ...StyleSheet.absoluteFillObject,
+      zIndex: 100,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: isDesktop ? 36 : 18,
+      backgroundColor: 'rgba(5, 10, 26, 0.62)',
+    },
+    kioskModal: {
+      width: '100%',
+      maxWidth: 460,
+      maxHeight: '82%',
+      borderRadius: 16,
+      backgroundColor: 'rgba(8, 17, 32, 0.94)',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(152, 203, 255, 0.13)',
+      padding: isDesktop ? 22 : 18,
+      shadowColor: C.primaryDeep,
+      shadowOpacity: 0.14,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 10 },
+      ...(Platform.OS === 'web' ? {
+        backdropFilter: 'blur(18px)',
+        WebkitBackdropFilter: 'blur(18px)',
+      } as any : {}),
+    },
+    kioskModalHeader: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: 12,
+      marginBottom: 18,
+    },
+    kioskModalEyebrow: {
+      color: C.primaryDeep,
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 2,
+      marginBottom: 5,
+    },
+    kioskModalTitle: {
+      color: C.onSurface,
+      fontSize: isDesktop ? 20 : 18,
+      fontWeight: '900',
+    },
+    kioskModalCloseBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(255, 255, 255, 0.035)',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(190, 199, 212, 0.12)',
+    },
+    kioskModalCloseText: {
+      color: C.onSurfaceVariant,
+      fontSize: 24,
+      lineHeight: 26,
+      fontWeight: '500',
+    },
+    kioskLoginForm: {
+      gap: 12,
+    },
+    kioskInput: {
+      width: '100%',
+      minHeight: 48,
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(152, 203, 255, 0.12)',
+      backgroundColor: 'rgba(5, 10, 26, 0.42)',
+      color: C.onSurface,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      fontSize: 14,
+      fontWeight: '600',
+      ...(Platform.OS === 'web' ? {
+        outlineStyle: 'none',
+      } as any : {}),
+    },
+    kioskSettingsError: {
+      color: '#FCA5A5',
+      fontSize: 12,
+      fontWeight: '700',
+      lineHeight: 18,
+    },
+    kioskPrimaryBtn: {
+      minHeight: 46,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: C.primaryDeep,
+      marginTop: 4,
+    },
+    kioskPrimaryBtnDisabled: {
+      opacity: 0.52,
+    },
+    kioskPrimaryBtnText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '900',
+      letterSpacing: 0.8,
+    },
+    kioskSelectWrap: {
+      minHeight: 160,
+    },
+    kioskSavingBox: {
+      minHeight: 180,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 22,
+      gap: 8,
+    },
+    kioskSuccessMark: {
+      width: 34,
+      height: 34,
+      borderRadius: 999,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(152, 203, 255, 0.28)',
+      backgroundColor: 'rgba(0, 163, 255, 0.12)',
+    },
+    kioskSuccessMarkText: {
+      color: C.primary,
+      fontSize: 20,
+      fontWeight: '900',
+    },
+    kioskSavingTitle: {
+      color: C.onSurface,
+      fontSize: 16,
+      fontWeight: '900',
+      marginTop: 8,
+    },
+    kioskSavingText: {
+      color: 'rgba(190, 199, 212, 0.72)',
+      fontSize: 12,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    kioskList: {
+      maxHeight: isDesktop ? 360 : 300,
+    },
+    kioskListContent: {
+      gap: 10,
+      paddingBottom: 2,
+    },
+    kioskEmptyText: {
+      color: C.onSurfaceVariant,
+      fontSize: 13,
+      fontWeight: '700',
+      textAlign: 'center',
+      paddingVertical: 24,
+    },
+    kioskOption: {
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: 'rgba(152, 203, 255, 0.11)',
+      backgroundColor: 'rgba(15, 23, 42, 0.48)',
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    kioskOptionSelected: {
+      borderColor: 'rgba(152, 203, 255, 0.28)',
+      backgroundColor: 'rgba(0, 163, 255, 0.1)',
+    },
+    kioskOptionTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 10,
+      marginBottom: 4,
+    },
+    kioskOptionName: {
+      flex: 1,
+      color: C.onSurface,
+      fontSize: 14,
+      fontWeight: '900',
+    },
+    kioskOptionId: {
+      color: C.primary,
+      fontSize: 11,
+      fontWeight: '900',
+      letterSpacing: 0.8,
+    },
+    kioskOptionLocation: {
+      color: 'rgba(190, 199, 212, 0.72)',
+      fontSize: 12,
+      fontWeight: '700',
     },
 
     /* ── Keypad ── */
